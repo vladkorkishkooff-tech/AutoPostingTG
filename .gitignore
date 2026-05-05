@@ -1,0 +1,7 @@
+.env
+Текстовый документ.txt
+.venv/
+__pycache__/
+*.pyc
+images/*
+!images/.gitkeep

@@ -1,0 +1,225 @@
+import asyncio
+import html
+import logging
+from dataclasses import dataclass
+
+from aiogram import Bot, Dispatcher, types
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.enums import ParseMode
+from aiogram.filters import Command
+from aiogram.filters.command import CommandObject
+from aiogram.types import LinkPreviewOptions
+from aiogram.types import BufferedInputFile
+
+from ai_gen import enabled_provider_names, generate_post
+from config import AppConfig, load_config
+from image_fetcher import download_image, generate_fallback_image, get_science_photo
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+config = load_config()
+
+
+def _create_bot(config: AppConfig) -> Bot | None:
+    if not config.bot_token:
+        return None
+    session = AiohttpSession(
+        proxy=config.telegram_proxy_url or None,
+        timeout=float(config.request_timeout_seconds),
+    )
+    return Bot(token=config.bot_token, session=session)
+
+
+bot = _create_bot(config)
+dp = Dispatcher()
+
+
+@dataclass(frozen=True)
+class PublishResult:
+    ok: bool
+    with_image: bool
+    topic: str
+    details: str
+
+
+def _normalize_topic(raw: str | None) -> str:
+    topic = (raw or "").strip()
+    return topic or config.default_topic
+
+
+def _channel_url(config: AppConfig) -> str:
+    if config.channel_url:
+        return config.channel_url
+    if config.channel_id.startswith("@"):
+        return f"https://t.me/{config.channel_id.lstrip('@')}"
+    return ""
+
+
+def _channel_footer(config: AppConfig) -> str:
+    url = _channel_url(config)
+    if not url:
+        return "\n\nНаучные факты"
+    return f'\n\n<a href="{url}">Научные факты</a>'
+
+
+def _is_allowed(message: types.Message) -> bool:
+    if not config.admin_user_ids:
+        return True
+    if not message.from_user:
+        return False
+    return message.from_user.id in config.admin_user_ids
+
+
+async def _deny_if_needed(message: types.Message) -> bool:
+    if _is_allowed(message):
+        return False
+    await message.answer("У вас нет доступа к этой команде.")
+    return True
+
+
+def _caption(text: str) -> str:
+    suffix = _channel_footer(config)
+    text = html.escape(text)
+    limit = 1024 - len(suffix)
+    if len(text) > limit:
+        text = text[: limit - 3].rstrip() + "..."
+    return text + suffix
+
+
+async def publish_post(topic: str | None = None, *, target_chat: str | int | None = None) -> PublishResult:
+    if bot is None:
+        return PublishResult(False, False, _normalize_topic(topic), "BOT_TOKEN is not configured")
+
+    normalized_topic = _normalize_topic(topic)
+    chat_id = target_chat or config.channel_id
+    logger.info("Preparing post for topic: %s", normalized_topic)
+
+    post_text = await generate_post(normalized_topic, config)
+    image = await get_science_photo(normalized_topic, config)
+    image_payload = await download_image(image, config) if image else None
+    if not image_payload:
+        image_payload = generate_fallback_image(normalized_topic, post_text)
+
+    try:
+        image_bytes, filename = image_payload
+        await bot.send_photo(
+            chat_id=chat_id,
+            photo=BufferedInputFile(image_bytes, filename=filename),
+            caption=_caption(post_text),
+            parse_mode=ParseMode.HTML,
+            show_caption_above_media=False,
+            disable_notification=True,
+        )
+        image_source = image.source if image and filename != "generated_science_fact.png" else "generated"
+        logger.info("Post sent with image to %s", chat_id)
+        return PublishResult(True, True, normalized_topic, f"sent with image from {image_source}")
+    except Exception as exc:
+        logger.exception("Telegram send failed")
+        return PublishResult(False, bool(image_payload), normalized_topic, str(exc))
+
+
+@dp.message(Command("start", "help"))
+async def cmd_help(message: types.Message):
+    if await _deny_if_needed(message):
+        return
+    await message.answer(
+        "AI Content Manager\n\n"
+        "Команды:\n"
+        "/post [тема] - отправить пост в канал\n"
+        "/preview [тема] - отправить тестовый пост в этот чат\n"
+        "/test - проверить конфигурацию\n\n"
+        "Примеры:\n"
+        "/post космос\n"
+        "/preview биология"
+    )
+
+
+@dp.message(Command("post"))
+async def cmd_post(message: types.Message, command: CommandObject):
+    if await _deny_if_needed(message):
+        return
+    topic = _normalize_topic(command.args)
+    await message.answer(f"Готовлю пост для канала. Тема: {topic}")
+    result = await publish_post(topic)
+    status = "отправлен" if result.ok else "не отправлен"
+    image_status = "с изображением" if result.with_image else "без изображения"
+    await message.answer(f"Пост {status}: {image_status}. Детали: {result.details}")
+
+
+@dp.message(Command("preview"))
+async def cmd_preview(message: types.Message, command: CommandObject):
+    if await _deny_if_needed(message):
+        return
+    topic = _normalize_topic(command.args)
+    await message.answer(f"Готовлю preview в этот чат. Тема: {topic}")
+    result = await publish_post(topic, target_chat=message.chat.id)
+    status = "готов" if result.ok else "не отправлен"
+    image_status = "с изображением" if result.with_image else "без изображения"
+    await message.answer(f"Preview {status}: {image_status}. Детали: {result.details}")
+
+
+@dp.message(Command("test"))
+async def cmd_test(message: types.Message):
+    if await _deny_if_needed(message):
+        return
+    providers = enabled_provider_names(config)
+    image_keys = {
+        "NASA": bool(config.nasa_api_key),
+        "Pixabay": bool(config.pixabay_api_key),
+        "Pexels": bool(config.pexels_api_key),
+        "Unsplash": bool(config.unsplash_access_key),
+    }
+    image_status = ", ".join(f"{name}: {'on' if enabled else 'off'}" for name, enabled in image_keys.items())
+    await message.answer(
+        "Конфигурация:\n\n"
+        f"BOT_TOKEN: {'on' if config.bot_token else 'off'}\n"
+        f"CHANNEL_ID: {config.channel_id or 'off'}\n"
+        f"Telegram proxy: {'on' if config.telegram_proxy_url else 'off'}\n"
+        f"LLM providers: {', '.join(providers) if providers else 'local'}\n"
+        f"Image providers: Wikimedia: on, {image_status}\n"
+        f"Default topic: {config.default_topic}\n"
+        f"Periodic posting: {'off' if config.disable_periodic_posting else str(config.post_interval_hours) + 'h'}"
+        ,
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
+    )
+
+
+async def periodic_posting():
+    if config.disable_periodic_posting:
+        logger.info("Periodic posting is disabled")
+        return
+
+    interval = max(config.post_interval_hours, 1) * 3600
+    if config.post_on_startup:
+        await publish_post(config.default_topic)
+
+    while True:
+        await asyncio.sleep(interval)
+        await publish_post(config.default_topic)
+
+
+async def run_bot():
+    if bot is None or not config.has_required_telegram_config:
+        raise RuntimeError("BOT_TOKEN and CHANNEL_ID must be configured in .env")
+
+    logger.info("Bot starting. Channel: %s", config.channel_id)
+    try:
+        asyncio.create_task(periodic_posting())
+        await bot.delete_webhook(drop_pending_updates=True)
+        await dp.start_polling(bot)
+    finally:
+        await bot.session.close()
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(run_bot())
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+    except Exception:
+        logger.exception("Bot stopped with an error")
