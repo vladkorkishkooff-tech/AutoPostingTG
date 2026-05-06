@@ -60,6 +60,8 @@ class AppConfig:
     telegram_proxy_url: str
     outbound_proxy_url: str
     default_topic: str
+    default_mode: str
+    post_style_example: str
     post_interval_hours: int
     post_on_startup: bool
     disable_periodic_posting: bool
@@ -102,6 +104,11 @@ def load_config() -> AppConfig:
         telegram_proxy_url=_getenv("TELEGRAM_PROXY_URL"),
         outbound_proxy_url=_getenv("OUTBOUND_PROXY_URL") or _getenv("TELEGRAM_PROXY_URL"),
         default_topic=_getenv("DEFAULT_TOPIC", "наука"),
+        default_mode=_getenv("DEFAULT_MODE", "normal").lower(),
+        post_style_example=_getenv(
+            "POST_STYLE_EXAMPLE",
+            "🤬 В японском языке нет ругательств сильнее, чем «дурак» и «идиот»",
+        ),
         post_interval_hours=_get_int("POST_INTERVAL_HOURS", 24),
         post_on_startup=_getenv("POST_ON_STARTUP", "false").lower() in {"1", "true", "yes", "on"},
         disable_periodic_posting=_getenv("DISABLE_PERIODIC_POSTING", "false").lower()

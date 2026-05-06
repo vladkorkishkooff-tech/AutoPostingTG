@@ -11,7 +11,7 @@ from aiogram.filters.command import CommandObject
 from aiogram.types import LinkPreviewOptions
 from aiogram.types import BufferedInputFile
 
-from ai_gen import enabled_provider_names, generate_post
+from ai_gen import available_modes, enabled_provider_names, generate_post, is_mode_token, normalize_mode
 from config import AppConfig, load_config
 from image_fetcher import download_image, generate_fallback_image, get_science_photo
 
@@ -47,9 +47,24 @@ class PublishResult:
     details: str
 
 
+@dataclass(frozen=True)
+class CommandInput:
+    topic: str
+    mode: str
+
+
 def _normalize_topic(raw: str | None) -> str:
     topic = (raw or "").strip()
     return topic or config.default_topic
+
+
+def _parse_command_args(raw: str | None) -> CommandInput:
+    parts = (raw or "").split()
+    if parts:
+        maybe_mode = normalize_mode(parts[0], config)
+        if is_mode_token(parts[0]):
+            return CommandInput(topic=_normalize_topic(" ".join(parts[1:])), mode=maybe_mode)
+    return CommandInput(topic=_normalize_topic(raw), mode=normalize_mode(config.default_mode, config))
 
 
 def _channel_url(config: AppConfig) -> str:
@@ -91,15 +106,21 @@ def _caption(text: str) -> str:
     return text + suffix
 
 
-async def publish_post(topic: str | None = None, *, target_chat: str | int | None = None) -> PublishResult:
+async def publish_post(
+    topic: str | None = None,
+    *,
+    target_chat: str | int | None = None,
+    mode: str | None = None,
+) -> PublishResult:
     if bot is None:
         return PublishResult(False, False, _normalize_topic(topic), "BOT_TOKEN is not configured")
 
     normalized_topic = _normalize_topic(topic)
+    normalized_mode = normalize_mode(mode, config)
     chat_id = target_chat or config.channel_id
-    logger.info("Preparing post for topic: %s", normalized_topic)
+    logger.info("Preparing post for topic: %s, mode: %s", normalized_topic, normalized_mode)
 
-    post_text = await generate_post(normalized_topic, config)
+    post_text = await generate_post(normalized_topic, config, normalized_mode)
     image = await get_science_photo(normalized_topic, config)
     image_payload = await download_image(image, config) if image else None
     if not image_payload:
@@ -130,12 +151,12 @@ async def cmd_help(message: types.Message):
     await message.answer(
         "AI Content Manager\n\n"
         "Команды:\n"
-        "/post [тема] - отправить пост в канал\n"
-        "/preview [тема] - отправить тестовый пост в этот чат\n"
+        "/post [режим] [тема] - отправить пост в канал\n"
+        "/preview [режим] [тема] - отправить тестовый пост в этот чат\n"
         "/test - проверить конфигурацию\n\n"
         "Примеры:\n"
-        "/post космос\n"
-        "/preview биология"
+        "/post wow космос\n"
+        "/preview funny биология"
     )
 
 
@@ -143,9 +164,9 @@ async def cmd_help(message: types.Message):
 async def cmd_post(message: types.Message, command: CommandObject):
     if await _deny_if_needed(message):
         return
-    topic = _normalize_topic(command.args)
-    await message.answer(f"Готовлю пост для канала. Тема: {topic}")
-    result = await publish_post(topic)
+    parsed = _parse_command_args(command.args)
+    await message.answer(f"Готовлю пост для канала. Тема: {parsed.topic}. Режим: {parsed.mode}")
+    result = await publish_post(parsed.topic, mode=parsed.mode)
     status = "отправлен" if result.ok else "не отправлен"
     image_status = "с изображением" if result.with_image else "без изображения"
     await message.answer(f"Пост {status}: {image_status}. Детали: {result.details}")
@@ -155,9 +176,9 @@ async def cmd_post(message: types.Message, command: CommandObject):
 async def cmd_preview(message: types.Message, command: CommandObject):
     if await _deny_if_needed(message):
         return
-    topic = _normalize_topic(command.args)
-    await message.answer(f"Готовлю preview в этот чат. Тема: {topic}")
-    result = await publish_post(topic, target_chat=message.chat.id)
+    parsed = _parse_command_args(command.args)
+    await message.answer(f"Готовлю preview в этот чат. Тема: {parsed.topic}. Режим: {parsed.mode}")
+    result = await publish_post(parsed.topic, target_chat=message.chat.id, mode=parsed.mode)
     status = "готов" if result.ok else "не отправлен"
     image_status = "с изображением" if result.with_image else "без изображения"
     await message.answer(f"Preview {status}: {image_status}. Детали: {result.details}")
@@ -183,6 +204,8 @@ async def cmd_test(message: types.Message):
         f"LLM providers: {', '.join(providers) if providers else 'local'}\n"
         f"Image providers: Wikimedia: on, {image_status}\n"
         f"Default topic: {config.default_topic}\n"
+        f"Default mode: {normalize_mode(config.default_mode, config)}\n"
+        f"Modes: {', '.join(available_modes())}\n"
         f"Periodic posting: {'off' if config.disable_periodic_posting else str(config.post_interval_hours) + 'h'}"
         ,
         link_preview_options=LinkPreviewOptions(is_disabled=True),
@@ -200,7 +223,7 @@ async def periodic_posting():
 
     while True:
         await asyncio.sleep(interval)
-        await publish_post(config.default_topic)
+        await publish_post(config.default_topic, mode=config.default_mode)
 
 
 async def run_bot():

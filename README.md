@@ -1,40 +1,101 @@
-# AI Content Manager
+# AutoPostingTG
 
-Telegram-бот для портфолио: генерирует короткие научно-популярные посты, подбирает изображение и публикует результат в Telegram-канал.
+Telegram-бот для автопостинга научно-популярных фактов: генерирует короткий факт, подбирает тематическое изображение и публикует пост в Telegram-канал.
 
-Проект сделан расширяемым: LLM-провайдеры подключаются через `.env`, а при отсутствии API-ключей бот использует локальный fallback-генератор текста.
+## Демонстрация
 
-## Возможности
+> Скриншоты нужно положить в `docs/screenshots/`. Имена ниже уже подготовлены под README.
 
-- `/post [тема]` - отправить пост в канал.
-- `/preview [тема]` - отправить тестовый пост в текущий чат.
-- `/test` - проверить конфигурацию.
-- Автопостинг по расписанию раз в `POST_INTERVAL_HOURS`.
-- Fallback-цепочка LLM: Groq, Mistral, Gemini, NVIDIA, OpenRouter, custom OpenAI-compatible API, local.
-- Fallback-цепочка изображений: Wikimedia, NASA, Pixabay, Pexels, Unsplash.
+### `/preview`
 
-## Быстрый запуск
+![Preview command](docs/screenshots/preview.png)
 
-1. Создать виртуальное окружение:
+Команда отправляет тестовый пост в личный чат с ботом. Используется для проверки текста, картинки, режима и ссылок перед публикацией в канал.
+
+```text
+/preview космос
+/preview funny деревья
+/preview wow япония
+```
+
+### `/post`
+
+![Post command](docs/screenshots/post.png)
+
+Команда публикует готовый пост в Telegram-канал, указанный в `CHANNEL_ID`.
+
+```text
+/post космос
+/post funny деревья
+/post strict биология
+```
+
+### `/test`
+
+![Test command](docs/screenshots/test.png)
+
+Команда показывает текущую конфигурацию: включён ли Telegram proxy, какие LLM-провайдеры доступны, какие image API подключены и какой режим используется по умолчанию.
+
+```text
+/test
+```
+
+## Работает ли без VPN
+
+Коротко: **в России без VPN/proxy проект, скорее всего, не будет работать стабильно**.
+
+Причина: бот должен подключаться к `api.telegram.org`, а также к внешним LLM и image API. В тестовой среде прямое подключение к Telegram Bot API падало по timeout, поэтому был добавлен proxy-режим.
+
+Проект поддерживает оба варианта:
+
+- **Без VPN/proxy**: работает, если с вашей сети доступны `api.telegram.org`, LLM API и image API.
+- **С VPN/proxy**: рекомендуемый режим для РФ. Укажите proxy в `.env`.
+
+Пример для локального HTTP proxy:
+
+```env
+TELEGRAM_PROXY_URL=http://127.0.0.1:10809
+OUTBOUND_PROXY_URL=http://127.0.0.1:10809
+```
+
+Пример для SOCKS5:
+
+```env
+TELEGRAM_PROXY_URL=socks5://127.0.0.1:10808
+OUTBOUND_PROXY_URL=socks5://127.0.0.1:10808
+```
+
+`TELEGRAM_PROXY_URL` используется для Telegram. `OUTBOUND_PROXY_URL` используется для LLM и image API. Если `OUTBOUND_PROXY_URL` пустой, бот использует `TELEGRAM_PROXY_URL`.
+
+## Установка
+
+1. Склонировать репозиторий:
+
+```powershell
+git clone https://github.com/vladkorkishkooff-tech/AutoPostingTG.git
+cd AutoPostingTG
+```
+
+2. Создать виртуальное окружение:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
-2. Установить зависимости:
+3. Установить зависимости:
 
 ```powershell
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
-3. Создать `.env` на основе `.env.example`:
+4. Создать `.env`:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-4. Заполнить минимум:
+5. Заполнить минимум:
 
 ```env
 BOT_TOKEN=токен_бота_из_BotFather
@@ -42,36 +103,15 @@ CHANNEL_ID=@username_канала
 CHANNEL_URL=https://t.me/username_канала
 ```
 
-Если при запуске есть ошибка `Cannot connect to host api.telegram.org:443`, значит Python-процесс не имеет доступа к Telegram Bot API. Включить VPN в режиме системного туннеля или указать локальный proxy:
+6. Добавить бота администратором Telegram-канала с правом публикации.
 
-```env
-TELEGRAM_PROXY_URL=http://127.0.0.1:7890
-```
-
-или:
-
-```env
-TELEGRAM_PROXY_URL=socks5://127.0.0.1:1080
-```
-
-Порт зависит от твоего VPN/proxy-клиента.
-
-Для внешних AI и image API используется `OUTBOUND_PROXY_URL`. Если он пустой, бот берёт `TELEGRAM_PROXY_URL`.
-
-```env
-TELEGRAM_PROXY_URL=http://127.0.0.1:10809
-OUTBOUND_PROXY_URL=http://127.0.0.1:10809
-```
-
-5. Добавить бота администратором канала с правом публикации.
-
-6. Запустить:
+7. Запустить:
 
 ```powershell
 python main.py
 ```
 
-7. В Telegram написать боту:
+8. Проверить в Telegram:
 
 ```text
 /test
@@ -79,11 +119,11 @@ python main.py
 /post космос
 ```
 
-## Бесплатный LLM-режим
+## Настройка API
 
-Для демо бот работает даже без внешнего LLM API. Он будет брать локальные шаблоны из `ai_gen.py`.
+Бот работает даже без внешнего LLM API: если все модели недоступны, включается локальный fallback с готовыми фактами.
 
-Для более сильного портфолио-режима рекомендуется начать с Groq:
+Рекомендуемый бесплатный старт:
 
 ```env
 GROQ_API_KEY=...
@@ -91,60 +131,103 @@ GROQ_MODELS=llama-3.1-8b-instant,llama-3.3-70b-versatile,gemma2-9b-it,qwen/qwen3
 LLM_PROVIDER_ORDER=groq,nvidia,openrouter,local
 ```
 
-Бот перебирает модели слева направо. Если одна модель вернула лимит, 403, 429 или сетевую ошибку, он переходит к следующей.
+Цепочка работает слева направо. Если одна модель вернула лимит, `403`, `429` или сетевую ошибку, бот переходит к следующей модели или провайдеру.
 
-## Изображения
-
-Wikimedia работает без ключа. NASA по умолчанию использует `DEMO_KEY`, но для стабильности лучше получить бесплатный ключ NASA API:
+Изображения:
 
 ```env
-NASA_API_KEY=...
-```
-
-Pixabay, Pexels и Unsplash опциональны:
-
-```env
+NASA_API_KEY=DEMO_KEY
 PIXABAY_API_KEY=
 PEXELS_API_KEY=
 UNSPLASH_ACCESS_KEY=
 ```
 
-## Настройки
+Если все image API недоступны, бот создаёт простую тематическую fallback-картинку без текста.
+
+## Режимы постов
+
+Поддерживаются режимы:
+
+- `normal` / `обычный` - нейтральный короткий факт.
+- `funny` / `смешной` - факт с лёгкой иронией.
+- `wow` / `интересный` - факт с акцентом на удивление.
+- `strict` / `строгий` - сухой информативный стиль.
+
+Примеры:
+
+```text
+/preview normal космос
+/preview funny деревья
+/preview wow япония
+/preview strict биология
+```
+
+Режим по умолчанию:
 
 ```env
+DEFAULT_MODE=normal
+```
+
+## Стиль под эталонный пост
+
+Для портфолио и реального ведения канала не обязательно сразу fine-tune модель. В проекте уже есть быстрый способ “обучить” стиль через эталон в prompt:
+
+```env
+POST_STYLE_EXAMPLE=🤬 В японском языке нет ругательств сильнее, чем «дурак» и «идиот»
+```
+
+Модель не копирует этот текст буквально. Она использует его как ориентир по длине, плотности и подаче.
+
+Когда появится набор эталонов, можно собрать датасет:
+
+```jsonl
+{"messages":[{"role":"user","content":"Тема: японский язык. Режим: normal"},{"role":"assistant","content":"🤬 В японском языке нет ругательств сильнее, чем «дурак» и «идиот»"}]}
+{"messages":[{"role":"user","content":"Тема: деревья. Режим: wow"},{"role":"assistant","content":"🌲 Годичные кольца дерева отражают условия роста: широкие появляются в благоприятные годы, узкие — при стрессе или засухе"}]}
+```
+
+Где делать настоящее fine-tuning:
+
+- [Mistral Fine-tuning](https://docs.mistral.ai/capabilities/finetuning/text_vision_finetuning/) - fine-tuning через AI Studio или API, датасет в JSONL.
+- [Hugging Face TRL SFTTrainer](https://huggingface.co/docs/trl/main/sft_trainer) - самостоятельное supervised fine-tuning open-source моделей, например Qwen/Llama.
+- [OpenAI fine-tuning guide](https://help.openai.com/en/articles/11162441-how-can-i-get-started-with-fine-tuning) - fine-tuning через OpenAI API, если доступен аккаунт и регион.
+
+Практичный путь для этого проекта: сначала собрать 50-200 хороших постов, затем использовать их либо как `POST_STYLE_EXAMPLE`/few-shot prompt, либо как JSONL-датасет для fine-tuning.
+
+## Основные настройки `.env`
+
+```env
+BOT_TOKEN=
+CHANNEL_ID=@your_channel
+CHANNEL_URL=https://t.me/your_channel
+
+TELEGRAM_PROXY_URL=
+OUTBOUND_PROXY_URL=
+
 DEFAULT_TOPIC=наука
+DEFAULT_MODE=normal
+POST_STYLE_EXAMPLE=🤬 В японском языке нет ругательств сильнее, чем «дурак» и «идиот»
+
+LLM_PROVIDER_ORDER=groq,nvidia,openrouter,local
 POST_INTERVAL_HOURS=24
 POST_ON_STARTUP=false
 DISABLE_PERIODIC_POSTING=false
 ADMIN_USER_IDS=
-TELEGRAM_PROXY_URL=
-OUTBOUND_PROXY_URL=
-REQUEST_TIMEOUT_SECONDS=30
-MAX_IMAGE_BYTES=8000000
 ```
 
-Если `ADMIN_USER_IDS` пустой, команды доступны всем, кто написал боту. Для реального канала лучше указать Telegram user id администраторов:
+Если `ADMIN_USER_IDS` пустой, командами может пользоваться любой пользователь, который написал боту. Для реального канала лучше указать Telegram user id администраторов:
 
 ```env
 ADMIN_USER_IDS=123456789,987654321
 ```
 
-## Структура
+## Структура проекта
 
 ```text
-main.py          # Telegram-бот, команды, публикация
-config.py        # Загрузка и нормализация .env
-ai_gen.py        # LLM-провайдеры и local fallback
-image_fetcher.py # Поиск и скачивание изображений
-requirements.txt # Минимальные зависимости
-.env.example     # Шаблон конфигурации
+main.py              # Telegram-бот, команды, публикация
+config.py            # Загрузка и нормализация .env
+ai_gen.py            # LLM-провайдеры, режимы, style example, local fallback
+image_fetcher.py     # Поиск и скачивание изображений, fallback-картинка
+requirements.txt     # Зависимости
+.env.example         # Шаблон конфигурации
+docs/screenshots/    # Скриншоты для README
 ```
-
-## Что требуется от владельца проекта
-
-- Создать Telegram-бота через BotFather.
-- Создать Telegram-канал или использовать существующий.
-- Добавить бота администратором канала.
-- Заполнить `BOT_TOKEN`, `CHANNEL_ID`, `CHANNEL_URL`.
-- По желанию получить бесплатный `GROQ_API_KEY` и `NASA_API_KEY`.
-- Запустить `python main.py`.

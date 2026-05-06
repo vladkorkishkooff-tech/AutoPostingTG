@@ -9,6 +9,33 @@ from config import AppConfig, load_config
 logger = logging.getLogger(__name__)
 
 
+MODE_ALIASES = {
+    "normal": "normal",
+    "обычный": "normal",
+    "обычно": "normal",
+    "funny": "funny",
+    "fun": "funny",
+    "смешной": "funny",
+    "смешно": "funny",
+    "wow": "wow",
+    "interesting": "wow",
+    "интересный": "wow",
+    "интересно": "wow",
+    "strict": "strict",
+    "dry": "strict",
+    "строгий": "strict",
+    "строго": "strict",
+}
+
+
+MODE_DESCRIPTIONS = {
+    "normal": "короткий нейтральный научный факт без воды",
+    "funny": "короткий факт с лёгкой иронией, но без кринжа и без мема вместо факта",
+    "wow": "факт с эффектом удивления: неожиданное свойство, число или контраст",
+    "strict": "сухой информативный факт, максимально нейтральный стиль",
+}
+
+
 @dataclass(frozen=True)
 class LLMProvider:
     name: str
@@ -79,22 +106,38 @@ def _trim_for_telegram(text: str, limit: int = 430) -> str:
     return text[: limit - 1].rstrip() + "..."
 
 
-def _system_prompt() -> str:
+def normalize_mode(mode: str | None, config: AppConfig | None = None) -> str:
+    default = (config.default_mode if config else "normal") or "normal"
+    raw = (mode or default).strip().lower()
+    return MODE_ALIASES.get(raw, MODE_ALIASES.get(default, "normal"))
+
+
+def available_modes() -> list[str]:
+    return list(MODE_DESCRIPTIONS.keys())
+
+
+def is_mode_token(value: str | None) -> bool:
+    return bool(value and value.strip().lower() in MODE_ALIASES)
+
+
+def _system_prompt(mode: str, config: AppConfig) -> str:
+    mode_description = MODE_DESCRIPTIONS.get(mode, MODE_DESCRIPTIONS["normal"])
     return (
         "Ты пишешь посты для Telegram-канала о науке на русском языке. "
         "Нужен формат как в научно-популярном Telegram-посте: один короткий факт, 90-260 знаков. "
         "Без воды, без объяснения задачи, без markdown, без ссылок, без вопроса в конце, без призыва к обсуждению. "
         "Факт должен быть конкретным: объект, свойство, причина или числовая деталь. "
-        "Первым символом поставь уместный эмодзи."
+        "Первым символом поставь уместный эмодзи. "
+        f"Режим: {mode_description}. "
+        f"Эталон стиля: {config.post_style_example}"
     )
 
 
-def _user_prompt(topic: str) -> str:
+def _user_prompt(topic: str, mode: str) -> str:
     return (
-        f"Тема: {topic}. "
+        f"Тема: {topic}. Режим: {mode}. "
         "Верни только готовый текст факта одним абзацем. "
-        "Пример стиля: 🤬 В японском языке нет ругательств сильнее, чем «дурак» и «идиот». "
-        "Не копируй пример, придумай другой корректный факт по теме."
+        "Не копируй эталон буквально, используй только его длину, плотность и подачу."
     )
 
 
@@ -102,6 +145,7 @@ async def _call_openai_compatible(
     provider: LLMProvider,
     model: str,
     topic: str,
+    mode: str,
     config: AppConfig,
 ) -> str | None:
     url = f"{provider.base_url.rstrip('/')}/chat/completions"
@@ -117,8 +161,8 @@ async def _call_openai_compatible(
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": _system_prompt()},
-            {"role": "user", "content": _user_prompt(topic)},
+            {"role": "system", "content": _system_prompt(mode, config)},
+            {"role": "user", "content": _user_prompt(topic, mode)},
         ],
         "temperature": 0.35,
         "max_tokens": 180,
@@ -166,7 +210,7 @@ async def _call_openai_compatible(
         return None
 
 
-def _local_post(topic: str) -> str:
+def _local_post(topic: str, mode: str) -> str:
     facts = {
         "наука": [
             "🔬 Научная гипотеза ценна не убедительностью, а проверяемостью: хороший эксперимент должен иметь шанс её опровергнуть",
@@ -210,8 +254,9 @@ def _local_post(topic: str) -> str:
     return random.choice(topic_facts)
 
 
-async def generate_post(topic: str, config: AppConfig | None = None) -> str:
+async def generate_post(topic: str, config: AppConfig | None = None, mode: str | None = None) -> str:
     config = config or load_config()
+    normalized_mode = normalize_mode(mode, config)
     providers = _provider_map(config)
 
     for provider_name in config.llm_provider_order:
@@ -223,9 +268,9 @@ async def generate_post(topic: str, config: AppConfig | None = None) -> str:
             continue
 
         for model in provider.models:
-            result = await _call_openai_compatible(provider, model, topic, config)
+            result = await _call_openai_compatible(provider, model, topic, normalized_mode, config)
             if result:
                 return result
 
     logger.info("Using local fallback post generator")
-    return _local_post(topic)
+    return _local_post(topic, normalized_mode)

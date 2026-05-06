@@ -6,6 +6,8 @@ AI Content Manager - это Telegram-бот для автоматической 
 
 Бот умеет генерировать текст поста, подбирать изображение, отправлять preview в личный чат и публиковать готовый пост в Telegram-канал.
 
+Также поддерживаются режимы генерации (`normal`, `funny`, `wow`, `strict`) и настройка эталона стиля через `POST_STYLE_EXAMPLE` в `.env`.
+
 ## Основная идея
 
 Проект не привязан к одному AI API. Текст генерируется через цепочку провайдеров:
@@ -32,6 +34,8 @@ Wikimedia работает без ключа. NASA может работать �
 - Автопостинг раз в заданное количество часов.
 - Ограничение доступа по `ADMIN_USER_IDS`.
 - Работа без LLM API-ключей за счет local fallback.
+- Режимы генерации: обычный, смешной, удивляющий и строгий.
+- Настройка стиля поста через один или несколько эталонов в prompt.
 - Подключение бесплатных и платных провайдеров через `.env`.
 - Загрузка изображения в Telegram как bytes, а не простая передача URL.
 
@@ -73,6 +77,7 @@ ai_content_manager/
 - LLM: `GROQ_API_KEY`, `MISTRAL_API_KEY`, `GEMINI_API_KEY`, `NVIDIA_API_KEY`, `OPENROUTER_API_KEY`;
 - изображения: `NASA_API_KEY`, `PIXABAY_API_KEY`, `PEXELS_API_KEY`, `UNSPLASH_ACCESS_KEY`;
 - поведение: `POST_INTERVAL_HOURS`, `POST_ON_STARTUP`, `DISABLE_PERIODIC_POSTING`, `ADMIN_USER_IDS`.
+- стиль: `DEFAULT_MODE`, `POST_STYLE_EXAMPLE`.
 
 ### `ai_gen.py`
 
@@ -138,4 +143,3 @@ python main.py
 - Добавить web-панель управления.
 - Добавить Dockerfile.
 - Добавить тесты для `config.py`, `ai_gen.py` и `image_fetcher.py`.
-
