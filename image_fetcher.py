@@ -79,7 +79,12 @@ async def _fetch_json(
         return None
 
 
-async def fetch_wikimedia(session: aiohttp.ClientSession, topic: str, config: AppConfig) -> ImageResult | None:
+async def fetch_wikimedia(
+    session: aiohttp.ClientSession,
+    topic: str,
+    config: AppConfig,
+    excluded_urls: set[str],
+) -> ImageResult | None:
     query = _pick_query(topic)
     params = {
         "action": "query",
@@ -116,12 +121,18 @@ async def fetch_wikimedia(session: aiohttp.ClientSession, topic: str, config: Ap
             continue
         if url.lower().endswith((".svg", ".gif", ".tif", ".tiff")):
             continue
-        candidates.append(ImageResult(url=url, source="Wikimedia Commons", title=title))
+        if url not in excluded_urls:
+            candidates.append(ImageResult(url=url, source="Wikimedia Commons", title=title))
 
     return random.choice(candidates) if candidates else None
 
 
-async def fetch_nasa(session: aiohttp.ClientSession, topic: str, config: AppConfig) -> ImageResult | None:
+async def fetch_nasa(
+    session: aiohttp.ClientSession,
+    topic: str,
+    config: AppConfig,
+    excluded_urls: set[str],
+) -> ImageResult | None:
     query = _pick_query(topic)
     params = {"q": query, "media_type": "image", "page_size": 20}
     data = await _fetch_json(
@@ -138,7 +149,7 @@ async def fetch_nasa(session: aiohttp.ClientSession, topic: str, config: AppConf
         meta = (item.get("data") or [{}])[0]
         for link in links:
             url = link.get("href", "")
-            if url and link.get("render") == "image":
+            if url and link.get("render") == "image" and url not in excluded_urls:
                 candidates.append(ImageResult(url=url, source="NASA", title=meta.get("title", "")))
 
     if candidates:
@@ -152,13 +163,18 @@ async def fetch_nasa(session: aiohttp.ClientSession, topic: str, config: AppConf
             params={"api_key": config.nasa_api_key or "DEMO_KEY", "thumbs": "true"},
             proxy=config.outbound_proxy_url or None,
         )
-        if apod and apod.get("media_type") == "image" and apod.get("url"):
+        if apod and apod.get("media_type") == "image" and apod.get("url") not in excluded_urls:
             return ImageResult(url=apod["url"], source="NASA APOD", title=apod.get("title", ""))
 
     return None
 
 
-async def fetch_pixabay(session: aiohttp.ClientSession, topic: str, config: AppConfig) -> ImageResult | None:
+async def fetch_pixabay(
+    session: aiohttp.ClientSession,
+    topic: str,
+    config: AppConfig,
+    excluded_urls: set[str],
+) -> ImageResult | None:
     if not config.pixabay_api_key:
         return None
 
@@ -184,12 +200,18 @@ async def fetch_pixabay(session: aiohttp.ClientSession, topic: str, config: AppC
             title=item.get("tags", ""),
         )
         for item in hits
-        if item.get("largeImageURL") or item.get("webformatURL")
+        if (item.get("largeImageURL") or item.get("webformatURL"))
+        and (item.get("largeImageURL") or item.get("webformatURL")) not in excluded_urls
     ]
     return random.choice(candidates) if candidates else None
 
 
-async def fetch_pexels(session: aiohttp.ClientSession, topic: str, config: AppConfig) -> ImageResult | None:
+async def fetch_pexels(
+    session: aiohttp.ClientSession,
+    topic: str,
+    config: AppConfig,
+    excluded_urls: set[str],
+) -> ImageResult | None:
     if not config.pexels_api_key:
         return None
 
@@ -210,12 +232,18 @@ async def fetch_pexels(session: aiohttp.ClientSession, topic: str, config: AppCo
             title=item.get("alt", ""),
         )
         for item in photos
-        if (item.get("src") or {}).get("large") or (item.get("src") or {}).get("landscape")
+        if ((item.get("src") or {}).get("large") or (item.get("src") or {}).get("landscape"))
+        and ((item.get("src") or {}).get("large") or (item.get("src") or {}).get("landscape")) not in excluded_urls
     ]
     return random.choice(candidates) if candidates else None
 
 
-async def fetch_unsplash(session: aiohttp.ClientSession, topic: str, config: AppConfig) -> ImageResult | None:
+async def fetch_unsplash(
+    session: aiohttp.ClientSession,
+    topic: str,
+    config: AppConfig,
+    excluded_urls: set[str],
+) -> ImageResult | None:
     if not config.unsplash_access_key:
         return None
 
@@ -237,21 +265,27 @@ async def fetch_unsplash(session: aiohttp.ClientSession, topic: str, config: App
         )
         for item in results
         if (item.get("urls") or {}).get("regular")
+        and (item.get("urls") or {}).get("regular") not in excluded_urls
     ]
     return random.choice(candidates) if candidates else None
 
 
-async def get_science_photo(topic: str = "наука", config: AppConfig | None = None) -> ImageResult | None:
+async def get_science_photo(
+    topic: str = "наука",
+    config: AppConfig | None = None,
+    excluded_urls: set[str] | None = None,
+) -> ImageResult | None:
     config = config or load_config()
+    excluded_urls = excluded_urls or set()
     timeout = aiohttp.ClientTimeout(total=config.request_timeout_seconds)
     headers = {"User-Agent": USER_AGENT, "Accept": "application/json,image/*,*/*;q=0.8"}
 
     providers = [
-        ("Pixabay", lambda session: fetch_pixabay(session, topic, config)),
-        ("Pexels", lambda session: fetch_pexels(session, topic, config)),
-        ("NASA", lambda session: fetch_nasa(session, topic, config)),
-        ("Wikimedia Commons", lambda session: fetch_wikimedia(session, topic, config)),
-        ("Unsplash", lambda session: fetch_unsplash(session, topic, config)),
+        ("Pixabay", lambda session: fetch_pixabay(session, topic, config, excluded_urls)),
+        ("Pexels", lambda session: fetch_pexels(session, topic, config, excluded_urls)),
+        ("NASA", lambda session: fetch_nasa(session, topic, config, excluded_urls)),
+        ("Wikimedia Commons", lambda session: fetch_wikimedia(session, topic, config, excluded_urls)),
+        ("Unsplash", lambda session: fetch_unsplash(session, topic, config, excluded_urls)),
     ]
 
     async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
@@ -340,7 +374,7 @@ def generate_fallback_image(topic: str, fact: str) -> tuple[bytes, str]:
         shade = int(22 * ratio)
         draw.line((0, y, width, y), fill=background)
 
-    random.seed(normalized or "science")
+    random.seed(f"{normalized}:{fact}" or "science")
 
     if normalized in {"дерево", "деревья", "лес", "биология"}:
         draw.rectangle((0, 520, width, height), fill="#12351F")

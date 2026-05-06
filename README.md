@@ -178,6 +178,27 @@ UNSPLASH_ACCESS_KEY=
 
 Если все image API недоступны, бот создаёт простую тематическую fallback-картинку без текста.
 
+## Защита от повторов
+
+Бот ведёт локальную историю публикаций в `data/content_history.json`. Файл не коммитится в GitHub, потому что это runtime-состояние конкретного запуска.
+
+История используется для двух вещей:
+
+- не повторять недавние тексты по той же теме и режиму;
+- не использовать недавно отправленные URL изображений по той же теме.
+
+Настройки:
+
+```env
+HISTORY_FILE=data/content_history.json
+HISTORY_LIMIT=500
+RECENT_POST_LIMIT=40
+RECENT_IMAGE_LIMIT=60
+GENERATION_ATTEMPTS=4
+```
+
+Если посты всё ещё повторяются, увеличьте `RECENT_POST_LIMIT` и `GENERATION_ATTEMPTS`. Если повторяются фотографии, увеличьте `RECENT_IMAGE_LIMIT`.
+
 ## Режимы постов
 
 Поддерживаются режимы:
@@ -261,6 +282,7 @@ main.py              # Telegram-бот, команды, публикация
 config.py            # Загрузка и нормализация .env
 ai_gen.py            # LLM-провайдеры, режимы, style example, local fallback
 image_fetcher.py     # Поиск и скачивание изображений, fallback-картинка
+content_history.py   # История постов и изображений для защиты от повторов
 requirements.txt     # Зависимости
 .env.example         # Шаблон конфигурации
 docs/screenshots/    # Скриншоты для README

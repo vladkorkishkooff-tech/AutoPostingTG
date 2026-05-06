@@ -69,6 +69,11 @@ class AppConfig:
     llm_provider_order: list[str]
     request_timeout_seconds: int
     max_image_bytes: int
+    history_file: str
+    history_limit: int
+    recent_post_limit: int
+    recent_image_limit: int
+    generation_attempts: int
 
     groq_api_key: str
     groq_models: list[str]
@@ -120,6 +125,11 @@ def load_config() -> AppConfig:
         ),
         request_timeout_seconds=_get_int("REQUEST_TIMEOUT_SECONDS", 30),
         max_image_bytes=_get_int("MAX_IMAGE_BYTES", 8_000_000),
+        history_file=_getenv("HISTORY_FILE", "data/content_history.json"),
+        history_limit=_get_int("HISTORY_LIMIT", 500),
+        recent_post_limit=_get_int("RECENT_POST_LIMIT", 40),
+        recent_image_limit=_get_int("RECENT_IMAGE_LIMIT", 60),
+        generation_attempts=_get_int("GENERATION_ATTEMPTS", 4),
         groq_api_key=_getenv("GROQ_API_KEY"),
         groq_models=_get_list(
             "GROQ_MODELS",

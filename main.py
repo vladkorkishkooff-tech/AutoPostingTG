@@ -13,6 +13,7 @@ from aiogram.types import BufferedInputFile
 
 from ai_gen import available_modes, enabled_provider_names, generate_post, is_mode_token, normalize_mode
 from config import AppConfig, load_config
+from content_history import ContentHistory
 from image_fetcher import download_image, generate_fallback_image, get_science_photo
 
 
@@ -171,8 +172,32 @@ async def publish_post(
     chat_id = target_chat or config.channel_id
     logger.info("Preparing post for topic: %s, mode: %s", normalized_topic, normalized_mode)
 
-    post_text = await generate_post(normalized_topic, config, normalized_mode)
-    image = await get_science_photo(normalized_topic, config)
+    history = ContentHistory.load(config)
+    avoid_texts = history.recent_texts(
+        topic=normalized_topic,
+        mode=normalized_mode,
+        limit=config.recent_post_limit,
+    )
+
+    post_text = ""
+    for attempt in range(max(config.generation_attempts, 1)):
+        candidate = await generate_post(normalized_topic, config, normalized_mode, avoid_texts)
+        if not history.has_text(
+            candidate,
+            topic=normalized_topic,
+            mode=normalized_mode,
+            limit=config.recent_post_limit,
+        ):
+            post_text = candidate
+            break
+        logger.info("Generated duplicate post, retrying. Attempt %s", attempt + 1)
+        avoid_texts.append(candidate)
+
+    if not post_text:
+        post_text = await generate_post(normalized_topic, config, normalized_mode, avoid_texts)
+
+    excluded_image_urls = history.recent_image_urls(topic=normalized_topic, limit=config.recent_image_limit)
+    image = await get_science_photo(normalized_topic, config, excluded_image_urls=excluded_image_urls)
     image_payload = await download_image(image, config) if image else None
     if not image_payload:
         image_payload = generate_fallback_image(normalized_topic, post_text)
@@ -188,6 +213,15 @@ async def publish_post(
             disable_notification=True,
         )
         image_source = image.source if image and filename != "generated_science_fact.png" else "generated"
+        history.add(
+            topic=normalized_topic,
+            mode=normalized_mode,
+            text=post_text,
+            image_url=image.url if image and filename != "generated_science_fact.png" else None,
+            image_source=image_source,
+            chat_id=str(chat_id),
+        )
+        history.save(config.history_limit)
         logger.info("Post sent with image to %s", chat_id)
         return PublishResult(True, True, normalized_topic, f"sent with image from {image_source}")
     except Exception as exc:
@@ -262,6 +296,7 @@ async def cmd_test(message: types.Message):
         f"Default topic: {config.default_topic}\n"
         f"Default mode: {normalize_mode(config.default_mode, config)}\n"
         f"Modes: {', '.join(available_modes())}\n"
+        f"History file: {config.history_file}\n"
         f"Periodic posting: {'off' if config.disable_periodic_posting else str(config.post_interval_hours) + 'h'}"
         ,
         link_preview_options=LinkPreviewOptions(is_disabled=True),
