@@ -8,7 +8,7 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from aiogram.filters.command import CommandObject
-from aiogram.types import LinkPreviewOptions
+from aiogram.types import BotCommand, KeyboardButton, LinkPreviewOptions, ReplyKeyboardMarkup
 from aiogram.types import BufferedInputFile
 
 from ai_gen import available_modes, enabled_provider_names, generate_post, is_mode_token, normalize_mode
@@ -37,6 +37,13 @@ def _create_bot(config: AppConfig) -> Bot | None:
 
 bot = _create_bot(config)
 dp = Dispatcher()
+
+
+BTN_PREVIEW = "🔎 Preview"
+BTN_POST = "🚀 Post"
+BTN_TEST = "⚙️ Test"
+BTN_MODES = "🎛 Modes"
+BTN_HELP = "❓ Help"
 
 
 @dataclass(frozen=True)
@@ -106,6 +113,50 @@ def _caption(text: str) -> str:
     return text + suffix
 
 
+def _main_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=BTN_PREVIEW), KeyboardButton(text=BTN_POST)],
+            [KeyboardButton(text=BTN_TEST), KeyboardButton(text=BTN_MODES)],
+            [KeyboardButton(text=BTN_HELP)],
+        ],
+        resize_keyboard=True,
+        input_field_placeholder="Выберите действие или введите /preview funny космос",
+    )
+
+
+def _help_text() -> str:
+    return (
+        "AI Content Manager\n\n"
+        "Кнопки меню:\n"
+        f"{BTN_PREVIEW} - preview с темой и режимом по умолчанию\n"
+        f"{BTN_POST} - публикация в канал с темой и режимом по умолчанию\n"
+        f"{BTN_TEST} - проверка конфигурации\n"
+        f"{BTN_MODES} - список режимов\n"
+        f"{BTN_HELP} - справка\n\n"
+        "Команды с аргументами:\n"
+        "/post [режим] [тема] - отправить пост в канал\n"
+        "/preview [режим] [тема] - отправить тестовый пост в этот чат\n"
+        "/modes - показать режимы\n"
+        "/test - проверить конфигурацию\n\n"
+        "Примеры:\n"
+        "/post wow космос\n"
+        "/preview funny биология"
+    )
+
+
+def _modes_text() -> str:
+    return (
+        "Режимы генерации:\n\n"
+        "normal / обычный - нейтральный короткий факт\n"
+        "funny / смешной - факт с лёгкой иронией\n"
+        "wow / интересный - факт с акцентом на удивление\n"
+        "strict / строгий - сухой информативный стиль\n\n"
+        "Пример:\n"
+        "/preview wow деревья"
+    )
+
+
 async def publish_post(
     topic: str | None = None,
     *,
@@ -148,16 +199,21 @@ async def publish_post(
 async def cmd_help(message: types.Message):
     if await _deny_if_needed(message):
         return
-    await message.answer(
-        "AI Content Manager\n\n"
-        "Команды:\n"
-        "/post [режим] [тема] - отправить пост в канал\n"
-        "/preview [режим] [тема] - отправить тестовый пост в этот чат\n"
-        "/test - проверить конфигурацию\n\n"
-        "Примеры:\n"
-        "/post wow космос\n"
-        "/preview funny биология"
-    )
+    await message.answer(_help_text(), reply_markup=_main_keyboard())
+
+
+@dp.message(Command("menu"))
+async def cmd_menu(message: types.Message):
+    if await _deny_if_needed(message):
+        return
+    await message.answer("Меню включено.", reply_markup=_main_keyboard())
+
+
+@dp.message(Command("modes"))
+async def cmd_modes(message: types.Message):
+    if await _deny_if_needed(message):
+        return
+    await message.answer(_modes_text(), reply_markup=_main_keyboard())
 
 
 @dp.message(Command("post"))
@@ -209,7 +265,49 @@ async def cmd_test(message: types.Message):
         f"Periodic posting: {'off' if config.disable_periodic_posting else str(config.post_interval_hours) + 'h'}"
         ,
         link_preview_options=LinkPreviewOptions(is_disabled=True),
+        reply_markup=_main_keyboard(),
     )
+
+
+@dp.message(lambda message: message.text == BTN_PREVIEW)
+async def btn_preview(message: types.Message):
+    if await _deny_if_needed(message):
+        return
+    mode = normalize_mode(config.default_mode, config)
+    await message.answer(f"Готовлю preview. Тема: {config.default_topic}. Режим: {mode}")
+    result = await publish_post(config.default_topic, target_chat=message.chat.id, mode=mode)
+    status = "готов" if result.ok else "не отправлен"
+    await message.answer(f"Preview {status}. Детали: {result.details}", reply_markup=_main_keyboard())
+
+
+@dp.message(lambda message: message.text == BTN_POST)
+async def btn_post(message: types.Message):
+    if await _deny_if_needed(message):
+        return
+    mode = normalize_mode(config.default_mode, config)
+    await message.answer(f"Публикую в канал. Тема: {config.default_topic}. Режим: {mode}")
+    result = await publish_post(config.default_topic, mode=mode)
+    status = "отправлен" if result.ok else "не отправлен"
+    await message.answer(f"Пост {status}. Детали: {result.details}", reply_markup=_main_keyboard())
+
+
+@dp.message(lambda message: message.text == BTN_TEST)
+async def btn_test(message: types.Message):
+    await cmd_test(message)
+
+
+@dp.message(lambda message: message.text == BTN_MODES)
+async def btn_modes(message: types.Message):
+    if await _deny_if_needed(message):
+        return
+    await message.answer(_modes_text(), reply_markup=_main_keyboard())
+
+
+@dp.message(lambda message: message.text == BTN_HELP)
+async def btn_help(message: types.Message):
+    if await _deny_if_needed(message):
+        return
+    await message.answer(_help_text(), reply_markup=_main_keyboard())
 
 
 async def periodic_posting():
@@ -234,6 +332,16 @@ async def run_bot():
     try:
         asyncio.create_task(periodic_posting())
         await bot.delete_webhook(drop_pending_updates=True)
+        await bot.set_my_commands(
+            [
+                BotCommand(command="start", description="Открыть меню"),
+                BotCommand(command="menu", description="Показать кнопки меню"),
+                BotCommand(command="preview", description="Тестовый пост в этот чат"),
+                BotCommand(command="post", description="Опубликовать пост в канал"),
+                BotCommand(command="modes", description="Показать режимы генерации"),
+                BotCommand(command="test", description="Проверить конфигурацию"),
+            ]
+        )
         await dp.start_polling(bot)
     finally:
         await bot.session.close()
