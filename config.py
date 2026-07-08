@@ -121,7 +121,7 @@ def load_config() -> AppConfig:
         admin_user_ids=_get_ids("ADMIN_USER_IDS"),
         llm_provider_order=_get_list(
             "LLM_PROVIDER_ORDER",
-            ["groq", "mistral", "gemini", "nvidia", "openrouter", "custom", "local"],
+            ["groq", "mistral", "gemini", "nvidia", "openrouter", "custom"],
         ),
         request_timeout_seconds=_get_int("REQUEST_TIMEOUT_SECONDS", 30),
         max_image_bytes=_get_int("MAX_IMAGE_BYTES", 8_000_000),

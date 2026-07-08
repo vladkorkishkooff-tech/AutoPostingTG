@@ -1,12 +1,9 @@
 import logging
-import math
 import random
-from io import BytesIO
 from dataclasses import dataclass
 from pathlib import Path
 
 import aiohttp
-from PIL import Image, ImageDraw, ImageFont
 
 from config import AppConfig, load_config
 
@@ -335,81 +332,4 @@ async def download_image(image: ImageResult, config: AppConfig | None = None) ->
         return None
 
 
-def _load_font(size: int, *, bold: bool = False):
-    candidates = [
-        "C:/Windows/Fonts/arialbd.ttf" if bold else "C:/Windows/Fonts/arial.ttf",
-        "C:/Windows/Fonts/segoeuib.ttf" if bold else "C:/Windows/Fonts/segoeui.ttf",
-    ]
-    for candidate in candidates:
-        try:
-            return ImageFont.truetype(candidate, size)
-        except OSError:
-            continue
-    return ImageFont.load_default()
 
-
-def generate_fallback_image(topic: str, fact: str) -> tuple[bytes, str]:
-    width, height = 1280, 720
-    normalized = topic.strip().lower()
-    palettes = {
-        "космос": ("#07111F", "#1D4ED8", "#FBBF24"),
-        "физика": ("#111827", "#0891B2", "#F4D35E"),
-        "химия": ("#102A43", "#10B981", "#F4F1DE"),
-        "биология": ("#0B1F14", "#22C55E", "#A7F3D0"),
-        "дерево": ("#0B1F14", "#22C55E", "#84CC16"),
-        "деревья": ("#0B1F14", "#22C55E", "#84CC16"),
-        "лес": ("#0B1F14", "#16A34A", "#A3E635"),
-        "технологии": ("#111827", "#7C3AED", "#67E8F9"),
-        "математика": ("#1F2937", "#F97316", "#E5E7EB"),
-        "япония": ("#F8FAFC", "#DC2626", "#111827"),
-        "японский язык": ("#F8FAFC", "#DC2626", "#111827"),
-    }
-    background, accent, secondary = palettes.get(normalized, ("#101820", "#0EA5E9", "#F4F1DE"))
-
-    image = Image.new("RGB", (width, height), background)
-    draw = ImageDraw.Draw(image)
-
-    for y in range(height):
-        ratio = y / height
-        shade = int(22 * ratio)
-        draw.line((0, y, width, y), fill=background)
-
-    random.seed(f"{normalized}:{fact}" or "science")
-
-    if normalized in {"дерево", "деревья", "лес", "биология"}:
-        draw.rectangle((0, 520, width, height), fill="#12351F")
-        for x in range(80, width, 135):
-            trunk_w = random.randint(18, 30)
-            trunk_h = random.randint(160, 260)
-            base = 575 + random.randint(-20, 25)
-            draw.rectangle((x, base - trunk_h, x + trunk_w, base), fill="#6B3F22")
-            for radius, offset in [(92, -135), (72, -190), (58, -85)]:
-                cx = x + trunk_w // 2 + random.randint(-36, 36)
-                cy = base - trunk_h + offset + random.randint(-20, 20)
-                draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius), fill=accent)
-        draw.rectangle((0, 610, width, height), fill="#0F2F1C")
-    elif normalized in {"космос"}:
-        for _ in range(160):
-            x = random.randint(0, width - 1)
-            y = random.randint(0, height - 1)
-            r = random.choice([1, 1, 2])
-            draw.ellipse((x, y, x + r, y + r), fill="#FFFFFF")
-        draw.ellipse((760, 170, 1180, 590), fill=accent)
-        draw.ellipse((705, 135, 1115, 545), outline=secondary, width=4)
-    elif normalized in {"япония", "японский язык"}:
-        draw.rectangle((0, 0, width, height), fill="#F8FAFC")
-        draw.ellipse((500, 180, 780, 460), fill=accent)
-        for x in range(80, width, 170):
-            draw.rectangle((x, 470, x + 34, 650), fill="#7F1D1D")
-            draw.polygon([(x - 60, 470), (x + 17, 380), (x + 94, 470)], fill="#991B1B")
-    else:
-        for i in range(28):
-            angle = i / 28 * math.tau
-            cx = width // 2 + int(math.cos(angle) * 260)
-            cy = height // 2 + int(math.sin(angle) * 180)
-            draw.ellipse((cx - 90, cy - 90, cx + 90, cy + 90), outline=accent, width=5)
-        draw.ellipse((430, 190, 850, 610), fill=secondary)
-
-    buffer = BytesIO()
-    image.save(buffer, format="PNG", optimize=True)
-    return buffer.getvalue(), "generated_science_fact.png"

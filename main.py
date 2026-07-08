@@ -14,7 +14,7 @@ from aiogram.types import BufferedInputFile
 from ai_gen import available_modes, enabled_provider_names, generate_post, is_mode_token, normalize_mode
 from config import AppConfig, load_config
 from content_history import ContentHistory
-from image_fetcher import download_image, generate_fallback_image, get_science_photo
+from image_fetcher import download_image, get_science_photo
 
 
 logging.basicConfig(
@@ -182,6 +182,8 @@ async def publish_post(
     post_text = ""
     for attempt in range(max(config.generation_attempts, 1)):
         candidate = await generate_post(normalized_topic, config, normalized_mode, avoid_texts)
+        if candidate is None:
+            break
         if not history.has_text(
             candidate,
             topic=normalized_topic,
@@ -194,36 +196,49 @@ async def publish_post(
         avoid_texts.append(candidate)
 
     if not post_text:
-        post_text = await generate_post(normalized_topic, config, normalized_mode, avoid_texts)
+        return PublishResult(False, False, normalized_topic, "all LLM providers failed, nothing published")
 
     excluded_image_urls = history.recent_image_urls(topic=normalized_topic, limit=config.recent_image_limit)
-    image = await get_science_photo(normalized_topic, config, excluded_image_urls=excluded_image_urls)
+    image = await get_science_photo(normalized_topic, config, excluded_urls=excluded_image_urls)
     image_payload = await download_image(image, config) if image else None
-    if not image_payload:
-        image_payload = generate_fallback_image(normalized_topic, post_text)
 
     try:
-        image_bytes, filename = image_payload
-        await bot.send_photo(
-            chat_id=chat_id,
-            photo=BufferedInputFile(image_bytes, filename=filename),
-            caption=_caption(post_text),
-            parse_mode=ParseMode.HTML,
-            show_caption_above_media=False,
-            disable_notification=True,
-        )
-        image_source = image.source if image and filename != "generated_science_fact.png" else "generated"
+        if image_payload:
+            image_bytes, filename = image_payload
+            await bot.send_photo(
+                chat_id=chat_id,
+                photo=BufferedInputFile(image_bytes, filename=filename),
+                caption=_caption(post_text),
+                parse_mode=ParseMode.HTML,
+                show_caption_above_media=False,
+                disable_notification=True,
+            )
+            image_source = image.source if image else "unknown"
+            image_url = image.url if image else None
+        else:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=_caption(post_text),
+                parse_mode=ParseMode.HTML,
+                link_preview_options=LinkPreviewOptions(is_disabled=True),
+                disable_notification=True,
+            )
+            image_source = None
+            image_url = None
+
         history.add(
             topic=normalized_topic,
             mode=normalized_mode,
             text=post_text,
-            image_url=image.url if image and filename != "generated_science_fact.png" else None,
+            image_url=image_url,
             image_source=image_source,
             chat_id=str(chat_id),
         )
         history.save(config.history_limit)
-        logger.info("Post sent with image to %s", chat_id)
-        return PublishResult(True, True, normalized_topic, f"sent with image from {image_source}")
+        with_image = bool(image_payload)
+        logger.info("Post sent to %s (image: %s)", chat_id, with_image)
+        details = f"sent with image from {image_source}" if with_image else "sent without image"
+        return PublishResult(True, with_image, normalized_topic, details)
     except Exception as exc:
         logger.exception("Telegram send failed")
         return PublishResult(False, bool(image_payload), normalized_topic, str(exc))
