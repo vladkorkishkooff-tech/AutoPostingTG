@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  themeColor: '#070d0a',
+  themeColor: '#06090b',
   userScalable: false,
   initialScale: 1,
   maximumScale: 1,
@@ -22,7 +22,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ru" className={`bg-background ${geistSans.variable} ${geistMono.variable}`}>
+    <html lang="ru" suppressHydrationWarning className={`bg-background ${geistSans.variable} ${geistMono.variable}`}>
       <body className="font-sans antialiased">
         <Script src="https://telegram.org/js/telegram-web-app.js" strategy="beforeInteractive" />
         <div className="mx-auto flex min-h-dvh max-w-md flex-col">

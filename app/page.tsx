@@ -15,16 +15,16 @@ const fetcher = (url: string) => fetch(url).then((r) => r.json())
 
 function SystemRing({ active }: { active: boolean }) {
   return (
-    <div className="relative flex size-44 items-center justify-center">
+    <div className="relative flex size-36 shrink-0 items-center justify-center">
       <div className="ring-pulse absolute inset-0 rounded-full border border-primary/20" />
       <div className="absolute inset-2 rounded-full border-2 border-primary/40 neon-glow" />
       <div className="absolute inset-5 rounded-full border border-primary/15" />
-      <div className="flex flex-col items-center gap-1.5">
-        <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Система</span>
-        <span className="neon-text font-mono text-sm font-bold tracking-widest text-primary">
+      <div className="flex flex-col items-center gap-1">
+        <span className="text-[9px] uppercase tracking-[0.2em] text-muted-foreground">Система</span>
+        <span className="neon-text font-mono text-xs font-bold tracking-widest text-primary">
           {active ? 'АКТИВНА' : '...'}
         </span>
-        <svg width="88" height="26" viewBox="0 0 88 26" aria-hidden="true">
+        <svg width="72" height="22" viewBox="0 0 88 26" aria-hidden="true">
           <path
             className="ecg-line"
             d="M0 13 L14 13 L20 4 L27 22 L33 8 L38 13 L54 13 L60 6 L66 20 L71 13 L88 13"
@@ -59,13 +59,13 @@ export default function DashboardPage() {
       />
 
       <div className="flex flex-col gap-3 p-4">
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-          <div className="flex flex-col gap-3">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+          <div className="flex min-w-0 flex-col gap-2">
             <StatCard label="Постов сегодня" value={String(data?.postsToday ?? '—')} hint={data?.postsToday ? `+${data.postsToday}` : undefined} />
             <StatCard label="Провайдеры" value="5/5" hint="онлайн" />
           </div>
           <SystemRing active={!isLoading} />
-          <div className="flex flex-col gap-3">
+          <div className="flex min-w-0 flex-col gap-2">
             <StatCard label="Очередь" value={String(data?.queued ?? '—')} hint="поста" />
             <StatCard label="Повторы" value="0" hint="за 7 дней" />
           </div>

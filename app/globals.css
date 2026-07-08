@@ -4,17 +4,17 @@
   --font-sans: var(--font-geist-sans), system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), monospace;
 
-  --color-background: #030806;
-  --color-foreground: #d9f2e4;
-  --color-card: #071009;
-  --color-card-foreground: #d9f2e4;
-  --color-muted: #0c1a11;
-  --color-muted-foreground: #5e8a70;
+  --color-background: #06090b;
+  --color-foreground: #f2f6f4;
+  --color-card: #0d1214;
+  --color-card-foreground: #f2f6f4;
+  --color-muted: #131a1c;
+  --color-muted-foreground: #8b9a94;
   --color-primary: #35e08d;
-  --color-primary-foreground: #02120a;
+  --color-primary-foreground: #04130b;
   --color-accent: #2f9bff;
   --color-accent-foreground: #eaf5ff;
-  --color-border: #123322;
+  --color-border: #1e2a28;
   --color-destructive: #ef4444;
 
   --radius: 1rem;
@@ -22,44 +22,37 @@
 
 body {
   background: var(--color-background);
-  background-image:
-    radial-gradient(ellipse 80% 40% at 50% -10%, rgba(53, 224, 141, 0.07), transparent),
-    radial-gradient(ellipse 60% 30% at 50% 110%, rgba(53, 224, 141, 0.05), transparent);
   color: var(--color-foreground);
 }
 
-/* Neon utilities */
+/* Card like the mockup: dark neutral, thin subtle border */
 .neon-card {
-  background: linear-gradient(160deg, rgba(53, 224, 141, 0.06), rgba(7, 16, 9, 0.9) 40%);
-  border: 1px solid rgba(53, 224, 141, 0.16);
-  box-shadow:
-    inset 0 1px 0 rgba(53, 224, 141, 0.08),
-    0 0 24px rgba(0, 0, 0, 0.5);
+  background: #0d1214;
+  border: 1px solid #202b28;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02) inset;
 }
 
 .neon-glow {
   box-shadow:
-    0 0 12px rgba(53, 224, 141, 0.35),
-    0 0 40px rgba(53, 224, 141, 0.12);
+    0 0 12px rgba(53, 224, 141, 0.3),
+    0 0 36px rgba(53, 224, 141, 0.1);
 }
 
 .neon-text {
-  text-shadow: 0 0 12px rgba(53, 224, 141, 0.55);
+  text-shadow: 0 0 10px rgba(53, 224, 141, 0.45);
 }
 
 .btn-neon {
-  background: linear-gradient(180deg, rgba(53, 224, 141, 0.16), rgba(53, 224, 141, 0.06));
-  border: 1px solid rgba(53, 224, 141, 0.55);
+  background: rgba(53, 224, 141, 0.12);
+  border: 1px solid rgba(53, 224, 141, 0.5);
   color: var(--color-primary);
-  box-shadow:
-    0 0 14px rgba(53, 224, 141, 0.25),
-    inset 0 0 12px rgba(53, 224, 141, 0.08);
+  box-shadow: 0 0 12px rgba(53, 224, 141, 0.18);
 }
 
 .btn-blue {
   background: linear-gradient(180deg, #2f9bff, #1b6fd6);
   color: #eaf5ff;
-  box-shadow: 0 0 18px rgba(47, 155, 255, 0.35);
+  box-shadow: 0 0 16px rgba(47, 155, 255, 0.3);
 }
 
 @keyframes ecg {
