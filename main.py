@@ -11,7 +11,9 @@ from aiogram.filters.command import CommandObject
 from aiogram.types import BotCommand, KeyboardButton, LinkPreviewOptions, ReplyKeyboardMarkup
 from aiogram.types import BufferedInputFile
 
+import db
 from ai_gen import available_modes, enabled_provider_names, generate_post, is_mode_token, normalize_mode
+from bridge import start_bridge
 from config import AppConfig, load_config
 from content_history import ContentHistory
 from image_fetcher import download_image, get_science_photo
@@ -172,24 +174,42 @@ async def publish_post(
     chat_id = target_chat or config.channel_id
     logger.info("Preparing post for topic: %s, mode: %s", normalized_topic, normalized_mode)
 
-    history = ContentHistory.load(config)
-    avoid_texts = history.recent_texts(
-        topic=normalized_topic,
-        mode=normalized_mode,
-        limit=config.recent_post_limit,
-    )
+    use_db = bool(config.database_url)
+    pool = None
+    channel_db_id: int | None = None
+    history: ContentHistory | None = None
+
+    if use_db:
+        pool = await db.get_pool(config.database_url)
+        owner_telegram_id = next(iter(config.admin_user_ids), 0)
+        owner_id = await db.ensure_user(pool, owner_telegram_id)
+        channel_db_id = await db.ensure_channel(
+            pool, owner_id, str(chat_id), topic=normalized_topic, mode=normalized_mode
+        )
+        avoid_texts = await db.recent_texts(
+            pool, channel_db_id, topic=normalized_topic, mode=normalized_mode, limit=config.recent_post_limit
+        )
+    else:
+        history = ContentHistory.load(config)
+        avoid_texts = history.recent_texts(
+            topic=normalized_topic,
+            mode=normalized_mode,
+            limit=config.recent_post_limit,
+        )
+
+    async def _is_duplicate(candidate: str) -> bool:
+        if use_db:
+            return await db.has_text(pool, channel_db_id, candidate)
+        return history.has_text(
+            candidate, topic=normalized_topic, mode=normalized_mode, limit=config.recent_post_limit
+        )
 
     post_text = ""
     for attempt in range(max(config.generation_attempts, 1)):
         candidate = await generate_post(normalized_topic, config, normalized_mode, avoid_texts)
         if candidate is None:
             break
-        if not history.has_text(
-            candidate,
-            topic=normalized_topic,
-            mode=normalized_mode,
-            limit=config.recent_post_limit,
-        ):
+        if not await _is_duplicate(candidate):
             post_text = candidate
             break
         logger.info("Generated duplicate post, retrying. Attempt %s", attempt + 1)
@@ -198,14 +218,20 @@ async def publish_post(
     if not post_text:
         return PublishResult(False, False, normalized_topic, "all LLM providers failed, nothing published")
 
-    excluded_image_urls = history.recent_image_urls(topic=normalized_topic, limit=config.recent_image_limit)
+    if use_db:
+        excluded_image_urls = await db.recent_image_urls(
+            pool, channel_db_id, topic=normalized_topic, limit=config.recent_image_limit
+        )
+    else:
+        excluded_image_urls = history.recent_image_urls(topic=normalized_topic, limit=config.recent_image_limit)
     image = await get_science_photo(normalized_topic, config, excluded_urls=excluded_image_urls)
     image_payload = await download_image(image, config) if image else None
 
     try:
+        message_id: int | None = None
         if image_payload:
             image_bytes, filename = image_payload
-            await bot.send_photo(
+            sent = await bot.send_photo(
                 chat_id=chat_id,
                 photo=BufferedInputFile(image_bytes, filename=filename),
                 caption=_caption(post_text),
@@ -213,28 +239,42 @@ async def publish_post(
                 show_caption_above_media=False,
                 disable_notification=True,
             )
+            message_id = sent.message_id
             image_source = image.source if image else "unknown"
             image_url = image.url if image else None
         else:
-            await bot.send_message(
+            sent = await bot.send_message(
                 chat_id=chat_id,
                 text=_caption(post_text),
                 parse_mode=ParseMode.HTML,
                 link_preview_options=LinkPreviewOptions(is_disabled=True),
                 disable_notification=True,
             )
+            message_id = sent.message_id
             image_source = None
             image_url = None
 
-        history.add(
-            topic=normalized_topic,
-            mode=normalized_mode,
-            text=post_text,
-            image_url=image_url,
-            image_source=image_source,
-            chat_id=str(chat_id),
-        )
-        history.save(config.history_limit)
+        if use_db:
+            await db.add_published_post(
+                pool,
+                channel_db_id,
+                topic=normalized_topic,
+                mode=normalized_mode,
+                text=post_text,
+                image_url=image_url,
+                image_source=image_source,
+                telegram_message_id=message_id,
+            )
+        else:
+            history.add(
+                topic=normalized_topic,
+                mode=normalized_mode,
+                text=post_text,
+                image_url=image_url,
+                image_source=image_source,
+                chat_id=str(chat_id),
+            )
+            history.save(config.history_limit)
         with_image = bool(image_payload)
         logger.info("Post sent to %s (image: %s)", chat_id, with_image)
         details = f"sent with image from {image_source}" if with_image else "sent without image"
@@ -379,7 +419,14 @@ async def run_bot():
         raise RuntimeError("BOT_TOKEN and CHANNEL_ID must be configured in .env")
 
     logger.info("Bot starting. Channel: %s", config.channel_id)
+    bridge_runner = None
     try:
+        async def _generate_preview(topic: str | None, mode: str) -> str | None:
+            normalized_topic = _normalize_topic(topic)
+            normalized_mode = normalize_mode(mode, config)
+            return await generate_post(normalized_topic, config, normalized_mode)
+
+        bridge_runner = await start_bridge(_generate_preview, publish_post)
         asyncio.create_task(periodic_posting())
         await bot.delete_webhook(drop_pending_updates=True)
         await bot.set_my_commands(
@@ -394,6 +441,9 @@ async def run_bot():
         )
         await dp.start_polling(bot)
     finally:
+        if bridge_runner is not None:
+            await bridge_runner.cleanup()
+        await db.close_pool()
         await bot.session.close()
 
 

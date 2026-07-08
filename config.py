@@ -54,6 +54,7 @@ def _get_ids(name: str) -> set[int]:
 
 @dataclass(frozen=True)
 class AppConfig:
+    database_url: str
     bot_token: str
     channel_id: str
     channel_url: str
@@ -103,6 +104,7 @@ def load_config() -> AppConfig:
     load_dotenv()
 
     return AppConfig(
+        database_url=_getenv("DATABASE_URL"),
         bot_token=_getenv("BOT_TOKEN"),
         channel_id=_getenv("CHANNEL_ID") or _getenv("TARGET_CHANNEL"),
         channel_url=_getenv("CHANNEL_URL"),

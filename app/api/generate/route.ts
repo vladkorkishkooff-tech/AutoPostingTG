@@ -1,0 +1,32 @@
+import { NextResponse } from 'next/server'
+
+export async function POST(request: Request) {
+  const bridgeUrl = process.env.BOT_BRIDGE_URL
+  const bridgeSecret = process.env.BRIDGE_SECRET
+
+  if (!bridgeUrl || !bridgeSecret) {
+    return NextResponse.json({ error: 'bot_unavailable' }, { status: 503 })
+  }
+
+  try {
+    const body = await request.json()
+    const res = await fetch(`${bridgeUrl.replace(/\/$/, '')}/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Bridge-Secret': bridgeSecret,
+      },
+      body: JSON.stringify({
+        topic: String(body.topic ?? '').slice(0, 120),
+        mode: String(body.mode ?? 'normal'),
+        action: body.action === 'publish' ? 'publish' : 'preview',
+      }),
+      signal: AbortSignal.timeout(60_000),
+    })
+    const data = await res.json()
+    return NextResponse.json(data, { status: res.status })
+  } catch (error) {
+    console.error('[generate] bridge call failed', error)
+    return NextResponse.json({ error: 'bot_unavailable' }, { status: 503 })
+  }
+}
