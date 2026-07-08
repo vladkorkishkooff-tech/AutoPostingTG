@@ -18,7 +18,7 @@ export function BottomNav() {
   return (
     <nav
       aria-label="Основная навигация"
-      className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-md border-t border-border bg-card/95 backdrop-blur"
+      className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-md border-t border-primary/15 bg-background/95 backdrop-blur"
     >
       <ul className="flex items-stretch justify-between px-2 pb-[env(safe-area-inset-bottom)]">
         {items.map(({ href, label, icon: Icon }) => {
@@ -28,11 +28,17 @@ export function BottomNav() {
               <Link
                 href={href}
                 aria-current={active ? 'page' : undefined}
-                className={`flex flex-col items-center gap-1 py-2.5 text-[11px] transition-colors ${
-                  active ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+                className={`flex flex-col items-center gap-1 py-2.5 text-[10px] tracking-wide transition-colors ${
+                  active ? 'text-primary neon-text' : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                <Icon size={20} aria-hidden="true" />
+                <span
+                  className={`flex size-8 items-center justify-center rounded-xl transition-all ${
+                    active ? 'bg-primary/15 neon-glow' : ''
+                  }`}
+                >
+                  <Icon size={19} aria-hidden="true" />
+                </span>
                 {label}
               </Link>
             </li>

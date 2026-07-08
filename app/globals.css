@@ -4,17 +4,17 @@
   --font-sans: var(--font-geist-sans), system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), monospace;
 
-  --color-background: #070d0a;
-  --color-foreground: #e8f5ee;
-  --color-card: #0d1512;
-  --color-card-foreground: #e8f5ee;
-  --color-muted: #142019;
-  --color-muted-foreground: #7fa891;
-  --color-primary: #34d399;
-  --color-primary-foreground: #04120b;
-  --color-accent: #2563eb;
-  --color-accent-foreground: #eff6ff;
-  --color-border: #1c2b22;
+  --color-background: #030806;
+  --color-foreground: #d9f2e4;
+  --color-card: #071009;
+  --color-card-foreground: #d9f2e4;
+  --color-muted: #0c1a11;
+  --color-muted-foreground: #5e8a70;
+  --color-primary: #35e08d;
+  --color-primary-foreground: #02120a;
+  --color-accent: #2f9bff;
+  --color-accent-foreground: #eaf5ff;
+  --color-border: #123322;
   --color-destructive: #ef4444;
 
   --radius: 1rem;
@@ -22,5 +22,61 @@
 
 body {
   background: var(--color-background);
+  background-image:
+    radial-gradient(ellipse 80% 40% at 50% -10%, rgba(53, 224, 141, 0.07), transparent),
+    radial-gradient(ellipse 60% 30% at 50% 110%, rgba(53, 224, 141, 0.05), transparent);
   color: var(--color-foreground);
+}
+
+/* Neon utilities */
+.neon-card {
+  background: linear-gradient(160deg, rgba(53, 224, 141, 0.06), rgba(7, 16, 9, 0.9) 40%);
+  border: 1px solid rgba(53, 224, 141, 0.16);
+  box-shadow:
+    inset 0 1px 0 rgba(53, 224, 141, 0.08),
+    0 0 24px rgba(0, 0, 0, 0.5);
+}
+
+.neon-glow {
+  box-shadow:
+    0 0 12px rgba(53, 224, 141, 0.35),
+    0 0 40px rgba(53, 224, 141, 0.12);
+}
+
+.neon-text {
+  text-shadow: 0 0 12px rgba(53, 224, 141, 0.55);
+}
+
+.btn-neon {
+  background: linear-gradient(180deg, rgba(53, 224, 141, 0.16), rgba(53, 224, 141, 0.06));
+  border: 1px solid rgba(53, 224, 141, 0.55);
+  color: var(--color-primary);
+  box-shadow:
+    0 0 14px rgba(53, 224, 141, 0.25),
+    inset 0 0 12px rgba(53, 224, 141, 0.08);
+}
+
+.btn-blue {
+  background: linear-gradient(180deg, #2f9bff, #1b6fd6);
+  color: #eaf5ff;
+  box-shadow: 0 0 18px rgba(47, 155, 255, 0.35);
+}
+
+@keyframes ecg {
+  0% { stroke-dashoffset: 240; }
+  100% { stroke-dashoffset: 0; }
+}
+
+.ecg-line {
+  stroke-dasharray: 240;
+  animation: ecg 2.4s linear infinite;
+}
+
+@keyframes ring-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.03); }
+}
+
+.ring-pulse {
+  animation: ring-pulse 2.8s ease-in-out infinite;
 }
