@@ -15,6 +15,7 @@ import db
 from ai_gen import available_modes, enabled_provider_names, generate_post, is_mode_token, normalize_mode
 from bridge import start_bridge
 from config import AppConfig, load_config
+from user_keys import fetch_user_providers, log_usage
 from content_history import ContentHistory
 from image_fetcher import download_image, get_science_photo
 
@@ -356,7 +357,7 @@ async def cmd_post(message: types.Message, command: CommandObject):
     await message.answer(f"Готовлю пост для канала. Тема: {parsed.topic}. Режим: {parsed.mode}")
     result = await publish_post(parsed.topic, mode=parsed.mode)
     status = "отправлен" if result.ok else "не отправлен"
-    image_status = "с изображением" if result.with_image else "без изображения"
+    image_status = "с изображением" if result.with_image else "��ез изображения"
     await message.answer(f"Пост {status}: {image_status}. Детали: {result.details}")
 
 
