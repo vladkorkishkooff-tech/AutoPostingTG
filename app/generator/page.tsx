@@ -1,8 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { Eye, Send, ShieldCheck } from 'lucide-react'
-import { Card, PageHeader } from '@/components/ui'
+import { Eye, Send, ShieldCheck, Eye as Views, Heart, MessageCircle } from 'lucide-react'
+import { PageHeader } from '@/components/ui'
 
 const MODES = [
   { id: 'normal', label: 'Обычный' },
@@ -10,6 +10,8 @@ const MODES = [
   { id: 'wow', label: 'Wow' },
   { id: 'strict', label: 'Строгий' },
 ]
+
+const DEMO_PREVIEW = 'В японском языке нет ругательств сильнее, чем «дурак» и «идиот»'
 
 function qualityScore(text: string): number {
   let score = 55
@@ -21,9 +23,9 @@ function qualityScore(text: string): number {
 }
 
 export default function GeneratorPage() {
-  const [topic, setTopic] = useState('')
+  const [topic, setTopic] = useState('Необычные языковые факты')
   const [mode, setMode] = useState('wow')
-  const [preview, setPreview] = useState<string | null>(null)
+  const [preview, setPreview] = useState<string | null>(DEMO_PREVIEW)
   const [busy, setBusy] = useState<'preview' | 'publish' | null>(null)
   const [message, setMessage] = useState<string | null>(null)
 
@@ -53,7 +55,7 @@ export default function GeneratorPage() {
     }
   }
 
-  const score = preview ? qualityScore(preview) : null
+  const score = preview ? qualityScore(preview) : 92
 
   return (
     <div>
@@ -62,7 +64,7 @@ export default function GeneratorPage() {
       <div className="flex flex-col gap-4 p-4">
         <label className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Тема</span>
+            <span className="text-sm text-foreground">Тема</span>
             <span className="font-mono text-[11px] text-muted-foreground">{topic.length}/120</span>
           </div>
           <input
@@ -70,12 +72,12 @@ export default function GeneratorPage() {
             onChange={(e) => setTopic(e.target.value)}
             maxLength={120}
             placeholder="Необычные языковые факты"
-            className="neon-card rounded-xl px-4 py-3 text-sm outline-none placeholder:text-muted-foreground focus:border-primary/60"
+            className="glass px-4 py-3 text-sm outline-none placeholder:text-muted-foreground focus:border-primary/60"
           />
         </label>
 
         <fieldset>
-          <legend className="mb-2 text-sm text-muted-foreground">Режим</legend>
+          <legend className="mb-2 text-sm text-foreground">Режим</legend>
           <div className="grid grid-cols-4 gap-2">
             {MODES.map((m) => (
               <button
@@ -83,10 +85,10 @@ export default function GeneratorPage() {
                 type="button"
                 onClick={() => setMode(m.id)}
                 aria-pressed={mode === m.id}
-                className={`rounded-xl border px-2 py-2 text-xs transition-all ${
+                className={`rounded-xl px-2 py-2 text-xs transition-all ${
                   mode === m.id
-                    ? 'btn-neon font-semibold'
-                    : 'border-border bg-card text-muted-foreground hover:text-foreground'
+                    ? 'btn-outline-green !border-primary/70 font-semibold !text-primary text-glow'
+                    : 'glass text-muted-foreground hover:text-foreground'
                 }`}
               >
                 {m.label}
@@ -96,33 +98,59 @@ export default function GeneratorPage() {
         </fieldset>
 
         <section aria-label="Предпросмотр поста">
-          <h2 className="mb-2 text-sm text-muted-foreground">Предпросмотр поста</h2>
-          <Card>
-            {preview ? (
-              <div className="flex flex-col gap-2">
-                <p className="text-sm leading-relaxed">{preview}</p>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-primary">{topic || 'Научные факты'}</span>
-                  <ShieldCheck size={15} className="text-primary" aria-hidden="true" />
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Нажмите Preview, чтобы сгенерировать текст
-              </p>
-            )}
-          </Card>
+          <h2 className="mb-2 text-sm text-foreground">Предпросмотр поста</h2>
+          <div className="glass-strong flex gap-3 p-3">
+            <img
+              src="/demo/japan.png"
+              alt=""
+              className="size-20 shrink-0 rounded-xl border border-primary/25 object-cover"
+            />
+            <div className="flex min-w-0 flex-1 flex-col justify-between gap-1.5 py-0.5">
+              {preview ? (
+                <>
+                  <p className="text-[13px] leading-snug text-foreground">{preview}</p>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-primary underline decoration-primary/40 underline-offset-2">
+                      Научные факты
+                    </span>
+                    <ShieldCheck size={15} className="text-primary" aria-hidden="true" />
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">Нажмите Preview, чтобы сгенерировать текст</p>
+              )}
+            </div>
+          </div>
+          <div className="mt-2 flex items-center gap-4 px-1 text-muted-foreground">
+            <span className="flex items-center gap-1 font-mono text-[11px]">
+              <Views size={13} aria-hidden="true" /> 26
+            </span>
+            <span className="flex items-center gap-1 font-mono text-[11px]">
+              <Heart size={13} aria-hidden="true" /> 3
+            </span>
+            <span className="flex items-center gap-1 font-mono text-[11px]">
+              <MessageCircle size={13} aria-hidden="true" /> 3
+            </span>
+          </div>
         </section>
 
-        {score !== null ? (
-          <div className="flex items-center gap-3 px-1">
-            <span className="shrink-0 text-xs text-muted-foreground">Оценка качества</span>
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={score} aria-valuemin={0} aria-valuemax={100} aria-label="Оценка качества">
-              <div className="neon-glow h-full rounded-full bg-primary" style={{ width: `${score}%` }} />
-            </div>
-            <span className="shrink-0 font-mono text-xs text-primary">{score}/100</span>
+        <div className="flex items-center gap-3 px-1">
+          <span className="shrink-0 text-xs text-muted-foreground">Оценка качества</span>
+          <div
+            className="h-1.5 flex-1 overflow-hidden rounded-full bg-[rgba(47,226,142,0.12)]"
+            role="progressbar"
+            aria-valuenow={score}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="Оценка качества"
+          >
+            <div
+              className="h-full rounded-full bg-primary"
+              style={{ width: `${score}%`, boxShadow: '0 0 8px rgba(47,226,142,0.6)' }}
+            />
           </div>
-        ) : null}
+          <span className="shrink-0 font-mono text-xs text-primary">{score}/100</span>
+        </div>
 
         {message ? <p className="text-sm text-primary">{message}</p> : null}
 
@@ -131,7 +159,7 @@ export default function GeneratorPage() {
             type="button"
             disabled={busy !== null}
             onClick={() => run('preview')}
-            className="btn-neon flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold disabled:opacity-50"
+            className="btn-outline-green flex items-center justify-center gap-2 px-4 py-3 text-sm disabled:opacity-50"
           >
             <Eye size={16} aria-hidden="true" />
             {busy === 'preview' ? 'Генерация…' : 'Preview'}
@@ -140,7 +168,7 @@ export default function GeneratorPage() {
             type="button"
             disabled={busy !== null}
             onClick={() => run('publish')}
-            className="btn-blue flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold disabled:opacity-50"
+            className="btn-blue flex items-center justify-center gap-2 px-4 py-3 text-sm disabled:opacity-50"
           >
             <Send size={16} aria-hidden="true" />
             {busy === 'publish' ? 'Публикация…' : 'Опубликовать'}

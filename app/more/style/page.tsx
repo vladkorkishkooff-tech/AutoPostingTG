@@ -42,7 +42,7 @@ export default function StylePage() {
             maxLength={800}
             rows={5}
             placeholder="Вставьте пост, который отражает стиль вашего канала…"
-            className="neon-card resize-none rounded-xl px-4 py-3 text-sm leading-relaxed outline-none placeholder:text-muted-foreground focus:border-primary/60"
+            className="glass resize-none px-4 py-3 text-sm leading-relaxed outline-none placeholder:text-muted-foreground focus:border-primary/60"
           />
         </label>
 
@@ -87,7 +87,7 @@ export default function StylePage() {
           type="button"
           disabled={sample.length < 20}
           onClick={() => setTrained(true)}
-          className="btn-neon flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold disabled:opacity-40"
+          className="btn-green flex items-center justify-center gap-2 px-4 py-3 text-sm disabled:opacity-40"
         >
           <Dna size={16} aria-hidden="true" />
           {trained ? 'Стиль сохранён' : 'Обучить стиль'}

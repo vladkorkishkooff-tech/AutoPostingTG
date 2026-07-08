@@ -72,7 +72,11 @@ export default function SettingsPage() {
               right={
                 <span className="flex items-center gap-2">
                   <span className="font-mono text-xs text-muted-foreground">env: PROXY_URL</span>
-                  <span className="neon-glow size-2 rounded-full bg-primary" aria-hidden="true" />
+                  <span
+                    className="size-2 rounded-full bg-primary"
+                    style={{ boxShadow: '0 0 8px rgba(47,226,142,0.7)' }}
+                    aria-hidden="true"
+                  />
                 </span>
               }
             />

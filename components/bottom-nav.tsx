@@ -18,7 +18,7 @@ export function BottomNav() {
   return (
     <nav
       aria-label="Основная навигация"
-      className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-md border-t border-primary/15 bg-background/95 backdrop-blur"
+      className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-md border-t border-primary/15 bg-background/90 backdrop-blur-md"
     >
       <ul className="flex items-stretch justify-between px-2 pb-[env(safe-area-inset-bottom)]">
         {items.map(({ href, label, icon: Icon }) => {
@@ -29,12 +29,12 @@ export function BottomNav() {
                 href={href}
                 aria-current={active ? 'page' : undefined}
                 className={`flex flex-col items-center gap-1 py-2.5 text-[10px] tracking-wide transition-colors ${
-                  active ? 'text-primary neon-text' : 'text-muted-foreground hover:text-foreground'
+                  active ? 'text-primary text-glow' : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 <span
                   className={`flex size-8 items-center justify-center rounded-xl transition-all ${
-                    active ? 'bg-primary/15 neon-glow' : ''
+                    active ? 'bg-primary/15 ring-glow' : ''
                   }`}
                 >
                   <Icon size={19} aria-hidden="true" />
