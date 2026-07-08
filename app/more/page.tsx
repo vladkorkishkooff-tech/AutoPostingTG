@@ -1,8 +1,20 @@
 import Link from 'next/link'
-import { Layers, Settings, ChevronRight, ImageIcon, Dna } from 'lucide-react'
+import { Layers, Settings, ChevronRight, ImageIcon, Dna, KeyRound, BarChart3 } from 'lucide-react'
 import { Card, PageHeader } from '@/components/ui'
 
 const sections = [
+  {
+    href: '/more/keys',
+    icon: KeyRound,
+    title: 'API хранилище',
+    description: 'Свои ключи: Claude, GPT, Gemini, DeepSeek и другие',
+  },
+  {
+    href: '/more/stats',
+    icon: BarChart3,
+    title: 'Статистика',
+    description: 'Генерации, провайдеры, успешность',
+  },
   {
     href: '/more/media',
     icon: ImageIcon,

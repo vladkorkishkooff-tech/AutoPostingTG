@@ -177,7 +177,9 @@ async def publish_post(
     use_db = bool(config.database_url)
     pool = None
     channel_db_id: int | None = None
+    owner_id: int | None = None
     history: ContentHistory | None = None
+    user_providers: list[dict] = []
 
     if use_db:
         pool = await db.get_pool(config.database_url)
@@ -189,6 +191,10 @@ async def publish_post(
         avoid_texts = await db.recent_texts(
             pool, channel_db_id, topic=normalized_topic, mode=normalized_mode, limit=config.recent_post_limit
         )
+        try:
+            user_providers = await fetch_user_providers(pool, owner_id)
+        except Exception:
+            logger.exception("Failed to load user providers, falling back to env keys")
     else:
         history = ContentHistory.load(config)
         avoid_texts = history.recent_texts(
@@ -204,9 +210,30 @@ async def publish_post(
             candidate, topic=normalized_topic, mode=normalized_mode, limit=config.recent_post_limit
         )
 
+    async def _log_attempt(provider_name: str, model: str, success: bool, error: str | None, duration_ms: int):
+        if use_db and pool is not None:
+            await log_usage(
+                pool,
+                user_id=owner_id,
+                channel_id=channel_db_id,
+                event_type="generation",
+                provider=provider_name,
+                model=model,
+                success=success,
+                error=error,
+                duration_ms=duration_ms,
+            )
+
     post_text = ""
     for attempt in range(max(config.generation_attempts, 1)):
-        candidate = await generate_post(normalized_topic, config, normalized_mode, avoid_texts)
+        candidate = await generate_post(
+            normalized_topic,
+            config,
+            normalized_mode,
+            avoid_texts,
+            user_providers=user_providers,
+            on_attempt=_log_attempt if use_db else None,
+        )
         if candidate is None:
             break
         if not await _is_duplicate(candidate):
@@ -216,6 +243,15 @@ async def publish_post(
         avoid_texts.append(candidate)
 
     if not post_text:
+        if use_db and pool is not None:
+            await log_usage(
+                pool,
+                user_id=owner_id,
+                channel_id=channel_db_id,
+                event_type="publish",
+                success=False,
+                error="all providers failed",
+            )
         return PublishResult(False, False, normalized_topic, "all LLM providers failed, nothing published")
 
     if use_db:
@@ -264,6 +300,13 @@ async def publish_post(
                 image_url=image_url,
                 image_source=image_source,
                 telegram_message_id=message_id,
+            )
+            await log_usage(
+                pool,
+                user_id=owner_id,
+                channel_id=channel_db_id,
+                event_type="publish",
+                success=True,
             )
         else:
             history.add(

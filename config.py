@@ -81,6 +81,7 @@ class AppConfig:
     mistral_api_key: str
     mistral_models: list[str]
     gemini_api_key: str
+    gemini_api_keys: list[str]
     gemini_models: list[str]
     nvidia_api_key: str
     nvidia_models: list[str]
@@ -145,6 +146,11 @@ def load_config() -> AppConfig:
         mistral_api_key=_getenv("MISTRAL_API_KEY"),
         mistral_models=_get_list("MISTRAL_MODELS", [_getenv("MISTRAL_MODEL", "mistral-small-latest")]),
         gemini_api_key=_getenv("GEMINI_API_KEY"),
+        gemini_api_keys=[
+            key.strip()
+            for key in (_getenv("GEMINI_API_KEYS") or _getenv("GEMINI_API_KEY")).split(",")
+            if key.strip()
+        ],
         gemini_models=_get_list("GEMINI_MODELS", [_getenv("GEMINI_MODEL", "gemini-2.0-flash")]),
         nvidia_api_key=_getenv("NVIDIA_API_KEY"),
         nvidia_models=_get_list(

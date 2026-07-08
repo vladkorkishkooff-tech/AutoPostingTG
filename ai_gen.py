@@ -47,7 +47,22 @@ class LLMProvider:
         return bool(self.api_key and self.models and self.base_url)
 
 
+def _gemini_providers(config: AppConfig) -> list[LLMProvider]:
+    """One provider per Gemini key — rotation doubles free-tier limits."""
+    keys = config.gemini_api_keys or ([config.gemini_api_key] if config.gemini_api_key else [])
+    return [
+        LLMProvider(
+            name=f"gemini{'' if i == 0 else f'-{i + 1}'}",
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+            api_key=key,
+            models=config.gemini_models,
+        )
+        for i, key in enumerate(keys)
+    ]
+
+
 def _provider_map(config: AppConfig) -> dict[str, LLMProvider]:
+    gemini_list = _gemini_providers(config)
     return {
         "groq": LLMProvider(
             name="groq",
@@ -61,12 +76,9 @@ def _provider_map(config: AppConfig) -> dict[str, LLMProvider]:
             api_key=config.mistral_api_key,
             models=config.mistral_models,
         ),
-        "gemini": LLMProvider(
-            name="gemini",
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai",
-            api_key=config.gemini_api_key,
-            models=config.gemini_models,
-        ),
+        "gemini": gemini_list[0]
+        if gemini_list
+        else LLMProvider(name="gemini", base_url="", api_key="", models=[]),
         "nvidia": LLMProvider(
             name="nvidia",
             base_url="https://integrate.api.nvidia.com/v1",
@@ -223,23 +235,73 @@ async def generate_post(
     config: AppConfig | None = None,
     mode: str | None = None,
     avoid_texts: list[str] | None = None,
+    user_providers: list[dict] | None = None,
+    on_attempt=None,
 ) -> str | None:
-    """Generate a post via the configured LLM provider chain.
+    """Generate a post via the provider chain.
+
+    Order: client keys from the Mini App vault (user_providers) first,
+    then env-configured providers (with Gemini key rotation).
+    on_attempt: optional async callback (provider_name, model, success, error, duration_ms).
 
     Returns None when every provider fails: callers must handle this
     explicitly instead of silently publishing canned template content.
     """
+    import time as _time
+
     config = config or load_config()
     normalized_mode = normalize_mode(mode, config)
+
+    async def _try(provider: LLMProvider, model: str) -> str | None:
+        start = _time.monotonic()
+        result = await _call_openai_compatible(provider, model, topic, normalized_mode, config, avoid_texts)
+        if on_attempt:
+            try:
+                await on_attempt(
+                    provider.name,
+                    model,
+                    result is not None,
+                    None if result else "generation failed",
+                    int((_time.monotonic() - start) * 1000),
+                )
+            except Exception:
+                logger.exception("on_attempt callback failed")
+        return result
+
+    # 1. Ключи клиента из сейфа Mini App — приоритетнее общих
+    for up in user_providers or []:
+        provider = LLMProvider(
+            name=up["name"],
+            base_url=up["base_url"],
+            api_key=up["api_key"],
+            models=up["models"],
+        )
+        if not provider.is_enabled:
+            continue
+        for model in provider.models:
+            result = await _try(provider, model)
+            if result:
+                return result
+
+    # 2. Общие провайдеры из env
     providers = _provider_map(config)
+    gemini_rotation = _gemini_providers(config)
 
     for provider_name in config.llm_provider_order:
+        if provider_name == "gemini" and gemini_rotation:
+            for gp in gemini_rotation:
+                for model in gp.models:
+                    result = await _try(gp, model)
+                    if result:
+                        return result
+            continue
+
         provider = providers.get(provider_name)
         if not provider or not provider.is_enabled:
             continue
 
         for model in provider.models:
-            result = await _call_openai_compatible(provider, model, topic, normalized_mode, config, avoid_texts)
+            result = await _try(provider, model)
             if result:
                 return result
 
