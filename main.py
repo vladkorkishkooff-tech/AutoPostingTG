@@ -445,8 +445,17 @@ async def btn_help(message: types.Message):
 
 
 async def periodic_posting():
+    """Fallback-режим: простой интервал, если БД недоступна.
+
+    При наличии DATABASE_URL постингом управляет планировщик
+    (scheduler.run_scheduler) по расписаниям из таблицы schedules.
+    """
     if config.disable_periodic_posting:
         logger.info("Periodic posting is disabled")
+        return
+
+    if config.database_url:
+        logger.info("DB-driven scheduler is active; interval-based posting disabled")
         return
 
     interval = max(config.post_interval_hours, 1) * 3600
@@ -456,6 +465,19 @@ async def periodic_posting():
     while True:
         await asyncio.sleep(interval)
         await publish_post(config.default_topic, mode=config.default_mode)
+
+
+async def start_db_scheduler():
+    """Запускает планировщик расписаний, если настроена БД."""
+    if not config.database_url:
+        return
+
+    pool = await db.get_pool(config.database_url)
+
+    async def _publish(topic: str, mode: str, target_chat: str):
+        return await publish_post(topic, target_chat=target_chat, mode=mode)
+
+    asyncio.create_task(run_scheduler(pool, _publish))
 
 
 async def run_bot():
