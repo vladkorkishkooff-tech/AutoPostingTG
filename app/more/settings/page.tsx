@@ -12,7 +12,7 @@ type Channel = {
   is_active: boolean
 }
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json())
+import { swrFetcher as fetcher, apiFetch } from '@/lib/client'
 
 function Row({ label, value, right }: { label: string; value?: string; right?: React.ReactNode }) {
   return (

@@ -25,7 +25,7 @@ const DEMO_SLOTS = [
   { time: 'Завтра, 08:00', title: 'Почему небо голубое?', tag: 'Природа', status: 'posted' as const, img: '/demo/sky.png' },
 ]
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json())
+import { swrFetcher as fetcher, apiFetch } from '@/lib/client'
 
 export default function SchedulePage() {
   const { data, mutate } = useSWR<{ schedules: Schedule[] }>('/api/schedules', fetcher)
@@ -36,7 +36,7 @@ export default function SchedulePage() {
   async function addSchedule() {
     setSaving(true)
     try {
-      await fetch('/api/schedules', {
+      await apiFetch('/api/schedules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ postTime: time }),

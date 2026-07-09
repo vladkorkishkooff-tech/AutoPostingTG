@@ -1,20 +1,28 @@
 import { NextResponse } from 'next/server'
 import { sql } from '@/lib/db'
+import { getAuthUser, unauthorized } from '@/lib/auth'
 
-export async function GET() {
+export const dynamic = 'force-dynamic'
+
+export async function GET(request: Request) {
   try {
+    const user = await getAuthUser(request)
+    if (!user) return unauthorized()
     const [totals] = await sql`
       SELECT
-        count(*) FILTER (WHERE status = 'published') AS total_posts,
-        count(*) FILTER (WHERE status = 'published' AND published_at::date = now()::date) AS posts_today,
-        count(*) FILTER (WHERE status = 'scheduled') AS queued
-      FROM posts
+        count(*) FILTER (WHERE p.status = 'published') AS total_posts,
+        count(*) FILTER (WHERE p.status = 'published' AND p.published_at::date = now()::date) AS posts_today,
+        count(*) FILTER (WHERE p.status = 'scheduled') AS queued
+      FROM posts p
+      JOIN channels c ON c.id = p.channel_id
+      WHERE c.user_id = ${user.userId}
     `
     const [lastPost] = await sql`
-      SELECT text, topic, image_url, published_at
-      FROM posts
-      WHERE status = 'published'
-      ORDER BY published_at DESC
+      SELECT p.text, p.topic, p.image_url, p.published_at
+      FROM posts p
+      JOIN channels c ON c.id = p.channel_id
+      WHERE p.status = 'published' AND c.user_id = ${user.userId}
+      ORDER BY p.published_at DESC
       LIMIT 1
     `
     return NextResponse.json({

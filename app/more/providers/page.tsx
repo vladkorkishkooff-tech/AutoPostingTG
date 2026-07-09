@@ -22,7 +22,7 @@ const DEMO_PROVIDERS: Provider[] = [
   { provider: 'mistral', priority: 5, is_enabled: true },
 ]
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json())
+import { swrFetcher as fetcher, apiFetch } from '@/lib/client'
 
 export default function ProvidersPage() {
   const { data, isLoading } = useSWR<{ providers: Provider[] }>('/api/config', fetcher)

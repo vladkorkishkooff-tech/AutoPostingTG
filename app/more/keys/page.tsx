@@ -7,7 +7,7 @@ import { PageHeader, Card, Toggle, StatusPill } from '@/components/ui'
 import { BottomNav } from '@/components/bottom-nav'
 import { PROVIDERS_CATALOG, providerById } from '@/lib/providers-catalog'
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json())
+import { swrFetcher as fetcher, apiFetch } from '@/lib/client'
 
 type ApiKeyRow = {
   id: number
@@ -40,7 +40,7 @@ export default function KeysPage() {
     setSaving(true)
     setError(null)
     try {
-      const res = await fetch('/api/keys', {
+      const res = await apiFetch('/api/keys', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -67,7 +67,7 @@ export default function KeysPage() {
   }
 
   async function toggleKey(id: number, isActive: boolean) {
-    await fetch(`/api/keys/${id}`, {
+    await apiFetch(`/api/keys/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ isActive }),
@@ -76,7 +76,7 @@ export default function KeysPage() {
   }
 
   async function deleteKey(id: number) {
-    await fetch(`/api/keys/${id}`, { method: 'DELETE' })
+    await apiFetch(`/api/keys/${id}`, { method: 'DELETE' })
     mutate()
   }
 

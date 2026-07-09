@@ -14,7 +14,7 @@ type Post = {
   published_at: string | null
 }
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json())
+import { swrFetcher as fetcher, apiFetch } from '@/lib/client'
 
 const DEMO_POSTS = [
   { id: -1, text: 'В японском языке нет ругательств сильнее, чем «дурак» и «идиот»', when: 'Сегодня, 08:30', img: '/demo/japan.png', views: 26, likes: 3, comments: 3 },

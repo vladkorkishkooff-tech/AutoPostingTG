@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server'
 import { sql } from '@/lib/db'
+import { getAuthUser, unauthorized } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const user = await getAuthUser(request)
+    if (!user) return unauthorized()
+    const uid = user.userId
     const [totals, byProvider, daily, recentErrors] = await Promise.all([
       sql`
         SELECT
@@ -14,7 +18,7 @@ export async function GET() {
           count(*) FILTER (WHERE event_type = 'publish' AND NOT success) AS publish_failures,
           coalesce(avg(duration_ms) FILTER (WHERE event_type = 'generation' AND success), 0)::int AS avg_duration_ms
         FROM usage_events
-        WHERE created_at > now() - interval '30 days'
+        WHERE created_at > now() - interval '30 days' AND user_id = ${uid}
       `,
       sql`
         SELECT provider, model,
@@ -22,7 +26,8 @@ export async function GET() {
           count(*) FILTER (WHERE success) AS successes,
           coalesce(avg(duration_ms) FILTER (WHERE success), 0)::int AS avg_ms
         FROM usage_events
-        WHERE event_type = 'generation' AND created_at > now() - interval '30 days' AND provider IS NOT NULL
+        WHERE event_type = 'generation' AND created_at > now() - interval '30 days'
+          AND provider IS NOT NULL AND user_id = ${uid}
         GROUP BY provider, model
         ORDER BY attempts DESC
         LIMIT 10
@@ -31,14 +36,14 @@ export async function GET() {
         SELECT date_trunc('day', created_at)::date AS day,
           count(*) FILTER (WHERE event_type = 'publish' AND success) AS posts
         FROM usage_events
-        WHERE created_at > now() - interval '14 days'
+        WHERE created_at > now() - interval '14 days' AND user_id = ${uid}
         GROUP BY 1
         ORDER BY 1
       `,
       sql`
         SELECT provider, model, error, created_at
         FROM usage_events
-        WHERE NOT success AND created_at > now() - interval '7 days'
+        WHERE NOT success AND created_at > now() - interval '7 days' AND user_id = ${uid}
         ORDER BY created_at DESC
         LIMIT 5
       `,

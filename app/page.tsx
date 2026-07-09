@@ -11,7 +11,7 @@ type Stats = {
   lastPost: { text: string; topic: string; published_at: string; image_url: string | null } | null
 }
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json())
+import { swrFetcher as fetcher, apiFetch } from '@/lib/client'
 
 const demoLastPost = {
   text: 'В японском языке нет ругательств сильнее, чем «дурак» и «идиот»',

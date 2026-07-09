@@ -20,7 +20,7 @@ const DEMO_IMAGES = [
   { id: -8, url: '/demo/coffee.png', topic: 'Кофе' },
 ]
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json())
+import { swrFetcher as fetcher, apiFetch } from '@/lib/client'
 
 export default function MediaPage() {
   const { data } = useSWR<{ posts: Post[] }>('/api/posts?status=published', fetcher)

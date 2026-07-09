@@ -3,7 +3,7 @@
 import useSWR from 'swr'
 import { PageHeader, Card, StatCard } from '@/components/ui'
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json())
+import { swrFetcher as fetcher, apiFetch } from '@/lib/client'
 
 type UsageData = {
   totals: {

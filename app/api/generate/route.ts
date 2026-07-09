@@ -1,4 +1,7 @@
 import { NextResponse } from 'next/server'
+import { getAuthUser, unauthorized } from '@/lib/auth'
+
+export const dynamic = 'force-dynamic'
 
 export async function POST(request: Request) {
   const bridgeUrl = process.env.BOT_BRIDGE_URL
@@ -9,6 +12,8 @@ export async function POST(request: Request) {
   }
 
   try {
+    const user = await getAuthUser(request)
+    if (!user) return unauthorized()
     const body = await request.json()
     const res = await fetch(`${bridgeUrl.replace(/\/$/, '')}/generate`, {
       method: 'POST',

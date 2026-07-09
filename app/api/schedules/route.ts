@@ -1,13 +1,19 @@
 import { NextResponse } from 'next/server'
 import { sql } from '@/lib/db'
+import { getAuthUser, unauthorized } from '@/lib/auth'
 
-export async function GET() {
+export const dynamic = 'force-dynamic'
+
+export async function GET(request: Request) {
   try {
+    const user = await getAuthUser(request)
+    if (!user) return unauthorized()
     const schedules = await sql`
       SELECT s.id, s.post_time, s.days_of_week, s.timezone, s.is_active,
              c.chat_id, c.topic, c.mode
       FROM schedules s
       JOIN channels c ON c.id = s.channel_id
+      WHERE c.user_id = ${user.userId}
       ORDER BY s.post_time
     `
     return NextResponse.json({ schedules })
@@ -19,13 +25,17 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const user = await getAuthUser(request)
+    if (!user) return unauthorized()
     const body = await request.json()
     const postTime = String(body.postTime ?? '')
     if (!/^\d{2}:\d{2}$/.test(postTime)) {
       return NextResponse.json({ error: 'invalid_time' }, { status: 400 })
     }
 
-    const [channel] = await sql`SELECT id FROM channels ORDER BY id LIMIT 1`
+    const [channel] = await sql`
+      SELECT id FROM channels WHERE user_id = ${user.userId} ORDER BY id LIMIT 1
+    `
     if (!channel) {
       return NextResponse.json({ error: 'no_channel' }, { status: 400 })
     }

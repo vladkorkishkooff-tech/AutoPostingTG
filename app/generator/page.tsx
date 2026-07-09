@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Eye, Send, ShieldCheck, Eye as Views, Heart, MessageCircle } from 'lucide-react'
 import { PageHeader } from '@/components/ui'
+import { apiFetch } from '@/lib/client'
 
 const MODES = [
   { id: 'normal', label: 'Обычный' },
@@ -33,7 +34,7 @@ export default function GeneratorPage() {
     setBusy(action)
     setMessage(null)
     try {
-      const res = await fetch('/api/generate', {
+      const res = await apiFetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topic, mode, action }),

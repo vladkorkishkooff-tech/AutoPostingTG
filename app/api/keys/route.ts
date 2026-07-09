@@ -2,23 +2,17 @@ import { NextResponse } from 'next/server'
 import { sql } from '@/lib/db'
 import { encryptSecret, keyHint } from '@/lib/crypto'
 import { providerById } from '@/lib/providers-catalog'
+import { getAuthUser, unauthorized } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
-// MVP: единственный владелец (первый пользователь). После добавления
-// Telegram initData-авторизации заменить на сессионного пользователя.
-async function ownerId(): Promise<number | null> {
-  const rows = (await sql`SELECT id FROM users ORDER BY id LIMIT 1`) as { id: number }[]
-  return rows[0]?.id ?? null
-}
-
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const uid = await ownerId()
-    if (!uid) return NextResponse.json({ keys: [] })
+    const user = await getAuthUser(request)
+    if (!user) return unauthorized()
     const keys = await sql`
       SELECT id, provider, model, label, base_url, key_hint, priority, is_active, last_used_at, last_error, created_at
-      FROM api_keys WHERE user_id = ${uid}
+      FROM api_keys WHERE user_id = ${user.userId}
       ORDER BY priority ASC, id ASC
     `
     return NextResponse.json({ keys })
@@ -30,6 +24,8 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const user = await getAuthUser(request)
+    if (!user) return unauthorized()
     const body = await request.json()
     const provider = String(body.provider || '').trim()
     const apiKey = String(body.apiKey || '').trim()
@@ -47,15 +43,12 @@ export async function POST(request: Request) {
     }
     if (!baseUrl) baseUrl = def.baseUrl ?? null
 
-    const uid = await ownerId()
-    if (!uid) return NextResponse.json({ error: 'no owner user yet' }, { status: 409 })
-
     const inserted = (await sql`
       INSERT INTO api_keys (user_id, provider, model, label, base_url, encrypted_key, key_hint, priority)
       VALUES (
-        ${uid}, ${provider}, ${model}, ${label}, ${baseUrl},
+        ${user.userId}, ${provider}, ${model}, ${label}, ${baseUrl},
         ${encryptSecret(apiKey)}, ${keyHint(apiKey)},
-        COALESCE((SELECT MAX(priority) + 1 FROM api_keys WHERE user_id = ${uid}), 0)
+        COALESCE((SELECT MAX(priority) + 1 FROM api_keys WHERE user_id = ${user.userId}), 0)
       )
       RETURNING id, provider, model, label, base_url, key_hint, priority, is_active, created_at
     `) as Record<string, unknown>[]
