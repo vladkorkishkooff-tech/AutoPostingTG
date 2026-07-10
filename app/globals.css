@@ -31,52 +31,108 @@ body {
   color: var(--color-foreground);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  position: relative;
+  min-height: 100dvh;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -12%, rgba(94, 106, 210, 0.13), transparent 62%),
+    radial-gradient(ellipse 60% 42% at 82% 4%, rgba(140, 120, 210, 0.06), transparent 60%),
+    #0d0e12;
+  background-attachment: fixed;
 }
 
-/* ---- Surfaces ---- */
+/* Fine noise so large dark areas don't look flat */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.022;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='128' height='128' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---- Surfaces: layered light, top edge highlight, soft depth ---- */
 
 .glass {
-  background: #16171d;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035) 0%, rgba(255, 255, 255, 0) 42%), #16171d;
   border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 0.75rem;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 1px 2px rgba(0, 0, 0, 0.32),
+    0 8px 24px -12px rgba(0, 0, 0, 0.5);
 }
 
 .glass-strong {
-  background: #1a1b22;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0) 46%), #1a1b22;
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 0.75rem;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.34),
+    0 12px 32px -14px rgba(0, 0, 0, 0.55);
+}
+
+/* Featured surface: soft indigo ambience for hero cards */
+.glass-featured {
+  background:
+    radial-gradient(120% 90% at 50% -20%, rgba(94, 106, 210, 0.16), transparent 58%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0) 46%),
+    #16171d;
+  border: 1px solid rgba(122, 133, 224, 0.2);
+  border-radius: 0.75rem;
+  box-shadow:
+    inset 0 1px 0 rgba(163, 172, 240, 0.14),
+    0 1px 2px rgba(0, 0, 0, 0.32),
+    0 12px 36px -14px rgba(0, 0, 0, 0.55);
 }
 
 /* ---- Buttons ---- */
 
 .btn-green {
-  background: #5e6ad2;
+  background: linear-gradient(180deg, #6c78e2 0%, #5560cb 100%);
   color: #ffffff;
+  border: 1px solid rgba(163, 172, 240, 0.35);
   border-radius: 0.6rem;
   font-weight: 500;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 1px 2px rgba(0, 0, 0, 0.35),
+    0 6px 18px -6px rgba(94, 106, 210, 0.45);
   transition:
-    background 0.15s ease,
+    filter 0.15s ease,
+    box-shadow 0.15s ease,
     transform 0.1s ease;
 }
 
 .btn-green:hover {
-  background: #6b77e0;
+  filter: brightness(1.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 1px 2px rgba(0, 0, 0, 0.35),
+    0 8px 24px -6px rgba(94, 106, 210, 0.55);
 }
 
 .btn-green:active {
-  transform: translateY(0.5px);
+  transform: translateY(1px);
+  filter: brightness(0.97);
 }
 
 .btn-blue {
-  background: #5e6ad2;
+  background: linear-gradient(180deg, #6c78e2 0%, #5560cb 100%);
   color: #ffffff;
+  border: 1px solid rgba(163, 172, 240, 0.35);
   border-radius: 0.6rem;
   font-weight: 500;
-  transition: background 0.15s ease;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 1px 2px rgba(0, 0, 0, 0.35),
+    0 6px 18px -6px rgba(94, 106, 210, 0.45);
+  transition: filter 0.15s ease;
 }
 
 .btn-blue:hover {
-  background: #6b77e0;
+  filter: brightness(1.08);
 }
 
 .btn-outline-green {
@@ -128,6 +184,7 @@ body {
   height: 8px;
   border-radius: 999px;
   background: var(--color-success);
+  box-shadow: 0 0 10px rgba(76, 183, 130, 0.45);
   animation: breathe 3s ease-in-out infinite;
 }
 
@@ -198,7 +255,10 @@ body {
 }
 
 .switch[data-on='true'] {
-  background: #5e6ad2;
+  background: linear-gradient(180deg, #6c78e2 0%, #5560cb 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 0 12px -2px rgba(94, 106, 210, 0.5);
 }
 
 .switch[data-on='true']::after {

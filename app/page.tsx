@@ -47,7 +47,7 @@ export default function DashboardPage() {
       />
 
       <div className="fade-up flex flex-col gap-6 px-5 py-6">
-        <section aria-label="Статус системы" className="glass flex items-center justify-between p-5">
+        <section aria-label="Статус системы" className="glass-featured flex items-center justify-between p-5">
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2.5">
               <span className="status-dot" data-off={systemActive ? 'false' : 'true'} aria-hidden="true" />
