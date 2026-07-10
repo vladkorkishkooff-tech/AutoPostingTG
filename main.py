@@ -15,6 +15,7 @@ import db
 from ai_gen import available_modes, enabled_provider_names, generate_post, is_mode_token, normalize_mode
 from bridge import start_bridge
 from config import AppConfig, load_config
+from scheduler import run_scheduler
 from user_keys import fetch_user_providers, log_usage
 from content_history import ContentHistory
 from image_fetcher import download_image, get_science_photo
@@ -494,6 +495,7 @@ async def run_bot():
 
         bridge_runner = await start_bridge(_generate_preview, publish_post)
         asyncio.create_task(periodic_posting())
+        await start_db_scheduler()
         await bot.delete_webhook(drop_pending_updates=True)
         await bot.set_my_commands(
             [

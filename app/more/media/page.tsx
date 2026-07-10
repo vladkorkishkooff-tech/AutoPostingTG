@@ -9,28 +9,15 @@ type Post = { id: number; topic: string; image_url: string | null; image_source:
 
 const SOURCES = ['Pexels', 'Pixabay', 'NASA', 'Wikimedia']
 
-const DEMO_IMAGES = [
-  { id: -1, url: '/demo/japan.png', topic: 'Япония' },
-  { id: -2, url: '/demo/cat.png', topic: 'Кошки' },
-  { id: -3, url: '/demo/bee.png', topic: 'Пчёлы' },
-  { id: -4, url: '/demo/zebra.png', topic: 'Зебры' },
-  { id: -5, url: '/demo/bear.png', topic: 'Медведи' },
-  { id: -6, url: '/demo/galaxy.png', topic: 'Космос' },
-  { id: -7, url: '/demo/sky.png', topic: 'Небо' },
-  { id: -8, url: '/demo/coffee.png', topic: 'Кофе' },
-]
-
-import { swrFetcher as fetcher, apiFetch } from '@/lib/client'
+import { swrFetcher as fetcher } from '@/lib/client'
 
 export default function MediaPage() {
-  const { data } = useSWR<{ posts: Post[] }>('/api/posts?status=published', fetcher)
-  const dbImages = (data?.posts ?? []).filter((p) => p.image_url)
-  const images =
-    dbImages.length > 0
-      ? dbImages.map((p) => ({ id: p.id, url: p.image_url!, topic: p.topic }))
-      : DEMO_IMAGES
+  const { data, isLoading } = useSWR<{ posts: Post[] }>('/api/posts?status=published', fetcher)
+  const images = (data?.posts ?? [])
+    .filter((p) => p.image_url)
+    .map((p) => ({ id: p.id, url: p.image_url!, topic: p.topic }))
 
-  const [selected, setSelected] = useState<{ id: number; url: string; topic: string } | null>(images[0] ?? null)
+  const [selected, setSelected] = useState<{ id: number; url: string; topic: string } | null>(null)
   const [query, setQuery] = useState('')
 
   return (
@@ -62,6 +49,15 @@ export default function MediaPage() {
             aria-label="Поиск изображений"
           />
         </div>
+
+        {!isLoading && images.length === 0 ? (
+          <div className="glass flex flex-col items-center gap-2 p-6 text-center">
+            <p className="text-sm text-foreground">Галерея пуста</p>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Здесь появятся изображения из опубликованных постов — бот подбирает их автоматически.
+            </p>
+          </div>
+        ) : null}
 
         <div className="grid grid-cols-4 gap-2">
           {images.map((img) => (

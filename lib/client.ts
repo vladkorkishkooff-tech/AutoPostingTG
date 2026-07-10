@@ -17,4 +17,12 @@ export async function apiFetch(url: string, init?: RequestInit) {
   })
 }
 
-export const swrFetcher = (url: string) => apiFetch(url).then((r) => r.json())
+export const swrFetcher = async (url: string) => {
+  const res = await apiFetch(url)
+  if (!res.ok) {
+    const err = new Error(`API ${res.status}`)
+    ;(err as any).status = res.status
+    throw err
+  }
+  return res.json()
+}

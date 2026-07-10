@@ -1,8 +1,9 @@
 'use client'
 
 import useSWR from 'swr'
-import { ShieldCheck, SlidersHorizontal, Eye, Heart, MessageCircle } from 'lucide-react'
+import { ShieldCheck } from 'lucide-react'
 import { PageHeader } from '@/components/ui'
+import { swrFetcher as fetcher } from '@/lib/client'
 
 type Post = {
   id: number
@@ -13,15 +14,6 @@ type Post = {
   status: string
   published_at: string | null
 }
-
-import { swrFetcher as fetcher, apiFetch } from '@/lib/client'
-
-const DEMO_POSTS = [
-  { id: -1, text: 'В японском языке нет ругательств сильнее, чем «дурак» и «идиот»', when: 'Сегодня, 08:30', img: '/demo/japan.png', views: 26, likes: 3, comments: 3 },
-  { id: -2, text: 'Сутки на Венере длятся дольше, чем год на Венере', when: 'Вчера, 19:00', img: '/demo/space.png', views: 42, likes: 5, comments: 1 },
-  { id: -3, text: 'Белый медведь на самом деле черный', when: 'Вчера, 15:00', img: '/demo/bear.png', views: 31, likes: 2, comments: 0 },
-  { id: -4, text: 'Кофе был открыт пастухом, заметившим бодрость коз', when: 'Вчера, 11:00', img: '/demo/coffee.png', views: 28, likes: 3, comments: 0 },
-]
 
 function MiniStat({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
   return (
@@ -36,81 +28,70 @@ function MiniStat({ label, value, accent = false }: { label: string; value: stri
 
 export default function HistoryPage() {
   const { data, isLoading } = useSWR<{ posts: Post[] }>('/api/posts?status=published', fetcher)
-  const dbPosts = data?.posts ?? []
+  const posts = data?.posts ?? []
 
-  const items =
-    dbPosts.length > 0
-      ? dbPosts.map((p) => ({
-          id: p.id,
-          text: p.text,
-          when: p.published_at
-            ? new Date(p.published_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-            : '',
-          img: p.image_url,
-          views: 0,
-          likes: 0,
-          comments: 0,
-        }))
-      : DEMO_POSTS
+  const withImages = posts.filter((p) => p.image_url).length
+  const topics = new Set(posts.map((p) => p.topic)).size
 
   return (
     <div>
-      <PageHeader
-        title="История публикаций"
-        action={
-          <button
-            type="button"
-            className="glass flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs text-muted-foreground"
-          >
-            <SlidersHorizontal size={13} aria-hidden="true" />
-            Фильтры
-          </button>
-        }
-      />
+      <PageHeader title="История публикаций" />
 
       <div className="flex flex-col gap-4 p-4">
         <div className="glass grid grid-cols-4 gap-2 p-3">
-          <MiniStat label="Всего постов" value={isLoading ? '—' : dbPosts.length > 0 ? String(dbPosts.length) : '1 248'} />
-          <MiniStat label="Просмотров" value="98.4K" />
-          <MiniStat label="Реакций" value="12.7K" />
+          <MiniStat label="Всего постов" value={isLoading ? '—' : String(posts.length)} />
+          <MiniStat label="С фото" value={isLoading ? '—' : String(withImages)} />
+          <MiniStat label="Тем" value={isLoading ? '—' : String(topics)} />
           <MiniStat label="Повторов" value="0" accent />
         </div>
 
-        <section aria-label="Список публикаций" className="flex flex-col gap-3">
-          {items.map((post) => (
-            <article key={post.id} className="glass flex gap-3 p-3">
-              {post.img ? (
-                <img
-                  src={post.img || "/placeholder.svg"}
-                  alt=""
-                  className="size-16 shrink-0 rounded-xl border border-primary/20 object-cover"
-                />
-              ) : (
-                <div className="flex size-16 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-[rgba(8,28,20,0.6)] text-[10px] text-muted-foreground">
-                  txt
-                </div>
-              )}
-              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                <p className="text-[13px] leading-snug text-foreground">{post.text}</p>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3 text-muted-foreground">
-                    <span className="font-mono text-[10px]">{post.when}</span>
-                    <span className="flex items-center gap-1 font-mono text-[10px]">
-                      <Eye size={11} aria-hidden="true" /> {post.views}
-                    </span>
-                    <span className="flex items-center gap-1 font-mono text-[10px]">
-                      <Heart size={11} aria-hidden="true" /> {post.likes}
-                    </span>
-                    <span className="flex items-center gap-1 font-mono text-[10px]">
-                      <MessageCircle size={11} aria-hidden="true" /> {post.comments}
-                    </span>
+        {isLoading ? (
+          <p className="px-1 text-sm text-muted-foreground">Загрузка…</p>
+        ) : posts.length === 0 ? (
+          <div className="glass flex flex-col items-center gap-2 p-6 text-center">
+            <p className="text-sm text-foreground">История пуста</p>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Здесь появятся опубликованные посты — с текстом, фото и временем публикации.
+            </p>
+          </div>
+        ) : (
+          <section aria-label="Список публикаций" className="flex flex-col gap-3">
+            {posts.map((post) => (
+              <article key={post.id} className="glass flex gap-3 p-3">
+                {post.image_url ? (
+                  <img
+                    src={post.image_url || '/placeholder.svg'}
+                    alt=""
+                    className="size-16 shrink-0 rounded-xl border border-primary/20 object-cover"
+                  />
+                ) : (
+                  <div className="flex size-16 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-[rgba(8,28,20,0.6)] text-[10px] text-muted-foreground">
+                    txt
                   </div>
-                  <ShieldCheck size={15} className="shrink-0 text-primary" aria-hidden="true" />
+                )}
+                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                  <p className="text-[13px] leading-snug text-foreground">{post.text}</p>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 text-muted-foreground">
+                      <span className="font-mono text-[10px]">
+                        {post.published_at
+                          ? new Date(post.published_at).toLocaleString('ru-RU', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })
+                          : ''}
+                      </span>
+                      <span className="text-[10px] text-primary">{post.topic}</span>
+                    </div>
+                    <ShieldCheck size={15} className="shrink-0 text-primary" aria-hidden="true" />
+                  </div>
                 </div>
-              </div>
-            </article>
-          ))}
-        </section>
+              </article>
+            ))}
+          </section>
+        )}
       </div>
     </div>
   )

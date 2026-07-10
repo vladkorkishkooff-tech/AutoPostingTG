@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Eye, Send, ShieldCheck, Eye as Views, Heart, MessageCircle } from 'lucide-react'
+import { Eye, Send, ShieldCheck } from 'lucide-react'
 import { PageHeader } from '@/components/ui'
 import { apiFetch } from '@/lib/client'
 
@@ -11,8 +11,6 @@ const MODES = [
   { id: 'wow', label: 'Wow' },
   { id: 'strict', label: 'Строгий' },
 ]
-
-const DEMO_PREVIEW = 'В японском языке нет ругательств сильнее, чем «дурак» и «идиот»'
 
 function qualityScore(text: string): number {
   let score = 55
@@ -26,7 +24,7 @@ function qualityScore(text: string): number {
 export default function GeneratorPage() {
   const [topic, setTopic] = useState('Необычные языковые факты')
   const [mode, setMode] = useState('wow')
-  const [preview, setPreview] = useState<string | null>(DEMO_PREVIEW)
+  const [preview, setPreview] = useState<string | null>(null)
   const [busy, setBusy] = useState<'preview' | 'publish' | null>(null)
   const [message, setMessage] = useState<string | null>(null)
 
@@ -56,7 +54,7 @@ export default function GeneratorPage() {
     }
   }
 
-  const score = preview ? qualityScore(preview) : 92
+  const score = preview ? qualityScore(preview) : 0
 
   return (
     <div>
@@ -101,57 +99,45 @@ export default function GeneratorPage() {
         <section aria-label="Предпросмотр поста">
           <h2 className="mb-2 text-sm text-foreground">Предпросмотр поста</h2>
           <div className="glass-strong flex gap-3 p-3">
-            <img
-              src="/demo/japan.png"
-              alt=""
-              className="size-20 shrink-0 rounded-xl border border-primary/25 object-cover"
-            />
             <div className="flex min-w-0 flex-1 flex-col justify-between gap-1.5 py-0.5">
               {preview ? (
                 <>
                   <p className="text-[13px] leading-snug text-foreground">{preview}</p>
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-primary underline decoration-primary/40 underline-offset-2">
-                      Научные факты
+                      {topic || 'Тема'}
                     </span>
                     <ShieldCheck size={15} className="text-primary" aria-hidden="true" />
                   </div>
                 </>
               ) : (
-                <p className="text-sm text-muted-foreground">Нажмите Preview, чтобы сгенерировать текст</p>
+                <p className="py-4 text-center text-sm text-muted-foreground">
+                  Нажмите Preview, чтобы сгенерировать текст
+                </p>
               )}
             </div>
           </div>
-          <div className="mt-2 flex items-center gap-4 px-1 text-muted-foreground">
-            <span className="flex items-center gap-1 font-mono text-[11px]">
-              <Views size={13} aria-hidden="true" /> 26
-            </span>
-            <span className="flex items-center gap-1 font-mono text-[11px]">
-              <Heart size={13} aria-hidden="true" /> 3
-            </span>
-            <span className="flex items-center gap-1 font-mono text-[11px]">
-              <MessageCircle size={13} aria-hidden="true" /> 3
-            </span>
-          </div>
         </section>
 
-        <div className="flex items-center gap-3 px-1">
-          <span className="shrink-0 text-xs text-muted-foreground">Оценка качества</span>
-          <div
-            className="h-1.5 flex-1 overflow-hidden rounded-full bg-[rgba(47,226,142,0.12)]"
-            role="progressbar"
-            aria-valuenow={score}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-label="Оценка качества"
-          >
+        {preview ? (
+          <div className="flex items-center gap-3 px-1">
+            <span className="shrink-0 text-xs text-muted-foreground">Оценка качества</span>
             <div
-              className="h-full rounded-full bg-primary"
-              style={{ width: `${score}%`, boxShadow: '0 0 8px rgba(47,226,142,0.6)' }}
-            />
+              className="h-1.5 flex-1 overflow-hidden rounded-full bg-[rgba(47,226,142,0.12)]"
+              role="progressbar"
+              aria-valuenow={score}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="Оценка качества"
+            >
+              <div
+                className="h-full rounded-full bg-primary"
+                style={{ width: `${score}%`, boxShadow: '0 0 8px rgba(47,226,142,0.6)' }}
+              />
+            </div>
+            <span className="shrink-0 font-mono text-xs text-primary">{score}/100</span>
           </div>
-          <span className="shrink-0 font-mono text-xs text-primary">{score}/100</span>
-        </div>
+        ) : null}
 
         {message ? <p className="text-sm text-primary">{message}</p> : null}
 

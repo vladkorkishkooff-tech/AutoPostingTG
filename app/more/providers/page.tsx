@@ -14,19 +14,11 @@ const META: Record<string, { label: string; cost: string }> = {
   custom: { label: 'Custom OpenAI', cost: 'Свой endpoint' },
 }
 
-const DEMO_PROVIDERS: Provider[] = [
-  { provider: 'groq', priority: 1, is_enabled: true },
-  { provider: 'nvidia', priority: 2, is_enabled: true },
-  { provider: 'openrouter', priority: 3, is_enabled: true },
-  { provider: 'gemini', priority: 4, is_enabled: true },
-  { provider: 'mistral', priority: 5, is_enabled: true },
-]
-
-import { swrFetcher as fetcher, apiFetch } from '@/lib/client'
+import { swrFetcher as fetcher } from '@/lib/client'
 
 export default function ProvidersPage() {
   const { data, isLoading } = useSWR<{ providers: Provider[] }>('/api/config', fetcher)
-  const providers = (data?.providers?.length ?? 0) > 0 ? data!.providers : DEMO_PROVIDERS
+  const providers = data?.providers ?? []
 
   return (
     <div>
@@ -37,6 +29,13 @@ export default function ProvidersPage() {
         {isLoading ? (
           <div className="glass p-4">
             <p className="text-sm text-muted-foreground">Загрузка…</p>
+          </div>
+        ) : providers.length === 0 ? (
+          <div className="glass flex flex-col items-center gap-2 p-6 text-center">
+            <p className="text-sm text-foreground">Провайдеры ещё не настроены</p>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Стек появится после первого запуска бота. Добавить свои ключи можно в разделе «API хранилище».
+            </p>
           </div>
         ) : (
           providers.map((p, index) => {

@@ -1,23 +1,20 @@
 'use client'
 
 import useSWR from 'swr'
-import { ExternalLink, RefreshCw, ShieldCheck, Eye, Heart, MessageCircle } from 'lucide-react'
-import { Card, PageHeader, StatCard } from '@/components/ui'
+import { ExternalLink, RefreshCw, ShieldCheck } from 'lucide-react'
+import { PageHeader, StatCard } from '@/components/ui'
+import { swrFetcher as fetcher } from '@/lib/client'
 
 type Stats = {
   totalPosts: number
   postsToday: number
   queued: number
-  lastPost: { text: string; topic: string; published_at: string; image_url: string | null } | null
+  lastPost: { text: string; topic: string; published_at: string | null; image_url: string | null } | null
 }
 
-import { swrFetcher as fetcher, apiFetch } from '@/lib/client'
-
-const demoLastPost = {
-  text: 'В японском языке нет ругательств сильнее, чем «дурак» и «идиот»',
-  topic: 'Научные факты',
-  published_at: null as string | null,
-  image_url: '/demo/japan.png',
+type ConfigData = {
+  channel: { chat_id: string; is_active: boolean } | null
+  providers: { provider: string; is_enabled: boolean }[]
 }
 
 function SystemRing({ active }: { active: boolean }) {
@@ -48,10 +45,15 @@ function SystemRing({ active }: { active: boolean }) {
 
 export default function DashboardPage() {
   const { data, isLoading, mutate } = useSWR<Stats>('/api/stats', fetcher)
+  const { data: config } = useSWR<ConfigData>('/api/config', fetcher)
 
-  const lastPost = data?.lastPost ?? demoLastPost
-  const postsToday = data?.postsToday ?? 12
-  const queued = data?.queued ?? 3
+  const lastPost = data?.lastPost ?? null
+  const enabledProviders = config?.providers?.filter((p) => p.is_enabled).length
+  const totalProviders = config?.providers?.length
+
+  const channelUrl = config?.channel?.chat_id?.startsWith('@')
+    ? `https://t.me/${config.channel.chat_id.slice(1)}`
+    : null
 
   return (
     <div>
@@ -72,20 +74,24 @@ export default function DashboardPage() {
       <div className="flex flex-col gap-4 p-4">
         <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
           <div className="flex min-w-0 flex-col gap-2">
-            <StatCard label="Постов сегодня" value={String(postsToday)} hint="+20%" />
-            <StatCard label="Провайдеры" value="5/5" hint="онлайн" />
+            <StatCard label="Постов сегодня" value={data ? String(data.postsToday) : '—'} hint="за 24 часа" />
+            <StatCard
+              label="Провайдеры"
+              value={totalProviders ? `${enabledProviders}/${totalProviders}` : '—'}
+              hint={totalProviders ? 'онлайн' : 'нет данных'}
+            />
           </div>
-          <SystemRing active={!isLoading} />
+          <SystemRing active={!isLoading && Boolean(config?.channel?.is_active)} />
           <div className="flex min-w-0 flex-col gap-2">
-            <StatCard label="Очередь" value={String(queued)} hint="поста" />
-            <StatCard label="Повторы" value="0" hint="за 7 дней" />
+            <StatCard label="Очередь" value={data ? String(data.queued) : '—'} hint="постов" />
+            <StatCard label="Всего постов" value={data ? String(data.totalPosts) : '—'} hint="опубликовано" />
           </div>
         </div>
 
         <section aria-label="Последний автопост" className="glass p-3.5">
           <div className="mb-2.5 flex items-center justify-between px-0.5">
             <h2 className="text-sm font-medium text-foreground">Последний автопост</h2>
-            {lastPost.published_at ? (
+            {lastPost?.published_at ? (
               <time className="font-mono text-[11px] text-muted-foreground" dateTime={lastPost.published_at}>
                 {new Date(lastPost.published_at).toLocaleString('ru-RU', {
                   day: '2-digit',
@@ -94,49 +100,52 @@ export default function DashboardPage() {
                   minute: '2-digit',
                 })}
               </time>
-            ) : (
-              <span className="font-mono text-[11px] text-muted-foreground">Сегодня, 08:30</span>
-            )}
-          </div>
-
-          <div className="glass-strong flex gap-3 p-3">
-            {lastPost.image_url ? (
-              <img
-                src={lastPost.image_url || "/placeholder.svg"}
-                alt=""
-                className="size-20 shrink-0 rounded-xl border border-primary/25 object-cover"
-              />
             ) : null}
-            <div className="flex min-w-0 flex-1 flex-col justify-between gap-1.5 py-0.5">
-              <p className="text-[13px] leading-snug text-foreground">{lastPost.text}</p>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-primary underline decoration-primary/40 underline-offset-2">
-                  {lastPost.topic}
-                </span>
-                <ShieldCheck size={16} className="text-primary" aria-hidden="true" />
+          </div>
+
+          {lastPost ? (
+            <>
+              <div className="glass-strong flex gap-3 p-3">
+                {lastPost.image_url ? (
+                  <img
+                    src={lastPost.image_url || '/placeholder.svg'}
+                    alt=""
+                    className="size-20 shrink-0 rounded-xl border border-primary/25 object-cover"
+                  />
+                ) : null}
+                <div className="flex min-w-0 flex-1 flex-col justify-between gap-1.5 py-0.5">
+                  <p className="text-[13px] leading-snug text-foreground">{lastPost.text}</p>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-primary underline decoration-primary/40 underline-offset-2">
+                      {lastPost.topic}
+                    </span>
+                    <ShieldCheck size={16} className="text-primary" aria-hidden="true" />
+                  </div>
+                </div>
               </div>
+
+              {channelUrl ? (
+                <a
+                  href={channelUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-outline-green mt-3 flex w-full items-center justify-center gap-2 py-2.5 text-xs"
+                >
+                  Открыть в канале
+                  <ExternalLink size={13} aria-hidden="true" />
+                </a>
+              ) : null}
+            </>
+          ) : (
+            <div className="glass-strong flex flex-col items-center gap-1.5 p-5 text-center">
+              <p className="text-sm text-foreground">{isLoading ? 'Загрузка…' : 'Постов пока нет'}</p>
+              {!isLoading ? (
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  Создайте первый пост в Генераторе или настройте Расписание — бот всё сделает сам.
+                </p>
+              ) : null}
             </div>
-          </div>
-
-          <div className="mt-2.5 flex items-center gap-4 px-1 text-muted-foreground">
-            <span className="flex items-center gap-1 font-mono text-[11px]">
-              <Eye size={13} aria-hidden="true" /> 26
-            </span>
-            <span className="flex items-center gap-1 font-mono text-[11px]">
-              <Heart size={13} aria-hidden="true" /> 3
-            </span>
-            <span className="flex items-center gap-1 font-mono text-[11px]">
-              <MessageCircle size={13} aria-hidden="true" /> 3
-            </span>
-          </div>
-
-          <button
-            type="button"
-            className="btn-outline-green mt-3 flex w-full items-center justify-center gap-2 py-2.5 text-xs"
-          >
-            Открыть в канале
-            <ExternalLink size={13} aria-hidden="true" />
-          </button>
+          )}
         </section>
       </div>
     </div>
