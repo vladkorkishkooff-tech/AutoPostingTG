@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 
+/* Linear-style theme v2 */
 @theme inline {
   --font-sans: var(--font-geist-sans), system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), monospace;
