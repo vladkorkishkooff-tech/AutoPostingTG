@@ -15,10 +15,23 @@ export function Card({ children, className = '' }: { children: ReactNode; classN
 
 export function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="glass flex flex-col gap-1 p-4">
+    <div className="glass pressable flex flex-col gap-1 p-4">
       <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
-      <span className="text-[22px] font-semibold leading-tight tracking-tight text-foreground">{value}</span>
+      <span className="num text-[24px] font-semibold leading-tight text-foreground">{value}</span>
       {hint ? <span className="text-[11px] text-muted-foreground">{hint}</span> : null}
+    </div>
+  )
+}
+
+export function Skeleton({ className = '' }: { className?: string }) {
+  return <div className={`skeleton ${className}`} aria-hidden="true" />
+}
+
+export function SectionTitle({ children, action }: { children: ReactNode; action?: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between px-0.5">
+      <h2 className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">{children}</h2>
+      {action}
     </div>
   )
 }

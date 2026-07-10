@@ -17,6 +17,22 @@ export async function apiFetch(url: string, init?: RequestInit) {
   })
 }
 
+/**
+ * Haptic feedback через Telegram WebApp API.
+ * Вне Telegram — тихий no-op.
+ */
+export function haptic(style: 'light' | 'medium' | 'success' | 'error' = 'light') {
+  if (typeof window === 'undefined') return
+  const h = (window as any).Telegram?.WebApp?.HapticFeedback
+  if (!h) return
+  try {
+    if (style === 'success' || style === 'error') h.notificationOccurred(style)
+    else h.impactOccurred(style)
+  } catch {
+    // ignore
+  }
+}
+
 export const swrFetcher = async (url: string) => {
   const res = await apiFetch(url)
   if (!res.ok) {

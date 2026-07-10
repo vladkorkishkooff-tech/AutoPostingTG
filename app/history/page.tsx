@@ -2,7 +2,7 @@
 
 import useSWR from 'swr'
 import { ShieldCheck } from 'lucide-react'
-import { PageHeader } from '@/components/ui'
+import { PageHeader, Skeleton } from '@/components/ui'
 import { swrFetcher as fetcher } from '@/lib/client'
 
 type Post = {
@@ -18,7 +18,7 @@ type Post = {
 function MiniStat({ label, value }: { label: string; value: string; accent?: boolean }) {
   return (
     <div className="flex flex-col items-center gap-0.5">
-      <span className="text-lg font-semibold tracking-tight text-foreground">{value}</span>
+      <span className="num text-lg font-semibold text-foreground">{value}</span>
       <span className="text-center text-[10px] text-muted-foreground">{label}</span>
     </div>
   )
@@ -44,7 +44,11 @@ export default function HistoryPage() {
         </div>
 
         {isLoading ? (
-          <p className="px-1 text-sm text-muted-foreground">Загрузка…</p>
+          <div className="flex flex-col gap-3">
+            <Skeleton className="h-[88px] !rounded-xl" />
+            <Skeleton className="h-[88px] !rounded-xl" />
+            <Skeleton className="h-[88px] !rounded-xl" />
+          </div>
         ) : posts.length === 0 ? (
           <div className="glass flex flex-col items-center gap-2 p-6 text-center">
             <p className="text-sm text-foreground">История пуста</p>

@@ -87,8 +87,9 @@ export async function getAuthUser(request: Request): Promise<AuthUser | null> {
     }
   }
 
-  // Dev-фоллбек: только при явном ALLOW_DEV_AUTH=1
-  if (process.env.ALLOW_DEV_AUTH === '1') {
+  // Dev-фоллбек: локальная разработка (NODE_ENV=development) или явный ALLOW_DEV_AUTH=1.
+  // В production NODE_ENV=production, поэтому фоллбек недоступен без флага.
+  if (process.env.NODE_ENV === 'development' || process.env.ALLOW_DEV_AUTH === '1') {
     const rows = (await sql`SELECT id, telegram_id, username, first_name FROM users ORDER BY id LIMIT 1`) as {
       id: number
       telegram_id: number

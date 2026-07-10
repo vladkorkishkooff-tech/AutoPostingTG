@@ -3,8 +3,8 @@
 import { useState } from 'react'
 import useSWR from 'swr'
 import { Plus, Trash2 } from 'lucide-react'
-import { PageHeader, StatusPill, Toggle } from '@/components/ui'
-import { swrFetcher as fetcher, apiFetch } from '@/lib/client'
+import { PageHeader, StatusPill, Toggle, Skeleton } from '@/components/ui'
+import { swrFetcher as fetcher, apiFetch, haptic } from '@/lib/client'
 
 type Schedule = {
   id: number
@@ -22,6 +22,7 @@ export default function SchedulePage() {
   const [saving, setSaving] = useState(false)
 
   async function addSchedule() {
+    haptic('medium')
     setSaving(true)
     try {
       await apiFetch('/api/schedules', {
@@ -29,6 +30,7 @@ export default function SchedulePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ postTime: time }),
       })
+      haptic('success')
       mutate()
     } finally {
       setSaving(false)
@@ -36,6 +38,7 @@ export default function SchedulePage() {
   }
 
   async function toggleSchedule(id: number, isActive: boolean) {
+    haptic('light')
     await apiFetch(`/api/schedules/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -45,6 +48,7 @@ export default function SchedulePage() {
   }
 
   async function removeSchedule(id: number) {
+    haptic('medium')
     await apiFetch(`/api/schedules/${id}`, { method: 'DELETE' })
     mutate()
   }
@@ -76,7 +80,7 @@ export default function SchedulePage() {
             type="button"
             onClick={addSchedule}
             disabled={saving}
-            className="btn-green flex items-center gap-1.5 px-4 py-2.5 text-sm disabled:opacity-50"
+            className="btn-green pressable flex items-center gap-1.5 px-4 py-2.5 text-sm disabled:opacity-50"
           >
             <Plus size={16} aria-hidden="true" />
             Добавить
@@ -84,7 +88,10 @@ export default function SchedulePage() {
         </div>
 
         {isLoading ? (
-          <p className="px-1 text-sm text-muted-foreground">Загрузка…</p>
+          <div className="flex flex-col gap-3">
+            <Skeleton className="h-[62px] !rounded-xl" />
+            <Skeleton className="h-[62px] !rounded-xl" />
+          </div>
         ) : slots.length === 0 ? (
           <div className="glass flex flex-col items-center gap-2 p-6 text-center">
             <p className="text-sm text-foreground">Расписание пусто</p>

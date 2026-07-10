@@ -1,7 +1,8 @@
 'use client'
 
 import useSWR from 'swr'
-import { PageHeader, Toggle } from '@/components/ui'
+import { PageHeader, Toggle, Skeleton } from '@/components/ui'
+import { ProviderMark } from '@/components/provider-mark'
 
 type Provider = { provider: string; priority: number; is_enabled: boolean }
 
@@ -27,8 +28,10 @@ export default function ProvidersPage() {
         <p className="px-0.5 text-[12px] text-muted-foreground">Приоритет и маршрутизация запросов</p>
 
         {isLoading ? (
-          <div className="glass p-4">
-            <p className="text-sm text-muted-foreground">Загрузка…</p>
+          <div className="flex flex-col gap-3">
+            <Skeleton className="h-[72px] !rounded-xl" />
+            <Skeleton className="h-[72px] !rounded-xl" />
+            <Skeleton className="h-[72px] !rounded-xl" />
           </div>
         ) : providers.length === 0 ? (
           <div className="glass flex flex-col items-center gap-2 p-6 text-center">
@@ -45,9 +48,7 @@ export default function ProvidersPage() {
                 <span className="flex size-6 items-center justify-center rounded-md border border-border text-[11px] text-muted-foreground">
                   {index + 1}
                 </span>
-                <span className="flex size-9 items-center justify-center rounded-lg bg-muted text-sm font-semibold text-foreground">
-                  {meta.label[0]}
-                </span>
+                <ProviderMark provider={p.provider} />
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-medium text-foreground">{meta.label}</p>
                   <p className="text-[11px] text-muted-foreground">{meta.cost}</p>

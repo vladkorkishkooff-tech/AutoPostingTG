@@ -5,9 +5,10 @@ import useSWR from 'swr'
 import { KeyRound, Plus, Trash2, ExternalLink } from 'lucide-react'
 import { PageHeader, Card, Toggle, StatusPill } from '@/components/ui'
 import { BottomNav } from '@/components/bottom-nav'
+import { ProviderMark } from '@/components/provider-mark'
 import { PROVIDERS_CATALOG, providerById } from '@/lib/providers-catalog'
 
-import { swrFetcher as fetcher, apiFetch } from '@/lib/client'
+import { swrFetcher as fetcher, apiFetch, haptic } from '@/lib/client'
 
 type ApiKeyRow = {
   id: number
@@ -37,6 +38,7 @@ export default function KeysPage() {
   const def = providerById(provider)
 
   async function saveKey() {
+    haptic('medium')
     setSaving(true)
     setError(null)
     try {
@@ -67,6 +69,7 @@ export default function KeysPage() {
   }
 
   async function toggleKey(id: number, isActive: boolean) {
+    haptic('light')
     await apiFetch(`/api/keys/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -76,6 +79,7 @@ export default function KeysPage() {
   }
 
   async function deleteKey(id: number) {
+    haptic('medium')
     await apiFetch(`/api/keys/${id}`, { method: 'DELETE' })
     mutate()
   }
@@ -218,6 +222,7 @@ export default function KeysPage() {
             return (
               <li key={k.id}>
                 <Card className="flex items-center gap-3">
+                  <ProviderMark provider={k.provider} />
                   <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <div className="flex items-center gap-2">
                       <span className="truncate text-sm font-semibold">

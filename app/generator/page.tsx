@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Eye, Send, ShieldCheck } from 'lucide-react'
 import { PageHeader } from '@/components/ui'
-import { apiFetch } from '@/lib/client'
+import { apiFetch, haptic } from '@/lib/client'
 
 const MODES = [
   { id: 'normal', label: 'Обычный' },
@@ -29,6 +29,7 @@ export default function GeneratorPage() {
   const [message, setMessage] = useState<string | null>(null)
 
   async function run(action: 'preview' | 'publish') {
+    haptic('medium')
     setBusy(action)
     setMessage(null)
     try {
@@ -39,15 +40,18 @@ export default function GeneratorPage() {
       })
       const data = await res.json()
       if (!res.ok) {
+        haptic('error')
         setMessage(data.error === 'bot_unavailable' ? 'Бот недоступен. Проверьте, что он запущен.' : 'Ошибка генерации.')
         return
       }
+      haptic('success')
       if (action === 'preview') {
         setPreview(data.text ?? null)
       } else {
         setMessage('Пост опубликован в канал.')
       }
     } catch {
+      haptic('error')
       setMessage('Сетевая ошибка.')
     } finally {
       setBusy(null)
@@ -82,9 +86,12 @@ export default function GeneratorPage() {
               <button
                 key={m.id}
                 type="button"
-                onClick={() => setMode(m.id)}
+                onClick={() => {
+                  haptic('light')
+                  setMode(m.id)
+                }}
                 aria-pressed={mode === m.id}
-                className={`rounded-lg border px-2 py-2 text-xs font-medium transition-colors ${
+                className={`pressable rounded-lg border px-2 py-2 text-xs font-medium transition-colors ${
                   mode === m.id
                     ? 'border-primary/50 bg-primary/10 text-foreground'
                     : 'glass border-transparent text-muted-foreground hover:text-foreground'
@@ -141,7 +148,7 @@ export default function GeneratorPage() {
             type="button"
             disabled={busy !== null}
             onClick={() => run('preview')}
-            className="btn-outline-green flex items-center justify-center gap-2 px-4 py-3 text-sm disabled:opacity-50"
+            className="btn-outline-green pressable flex items-center justify-center gap-2 px-4 py-3 text-sm disabled:opacity-50"
           >
             <Eye size={16} aria-hidden="true" />
             {busy === 'preview' ? 'Генерация…' : 'Preview'}
@@ -150,7 +157,7 @@ export default function GeneratorPage() {
             type="button"
             disabled={busy !== null}
             onClick={() => run('publish')}
-            className="btn-blue flex items-center justify-center gap-2 px-4 py-3 text-sm disabled:opacity-50"
+            className="btn-blue pressable flex items-center justify-center gap-2 px-4 py-3 text-sm disabled:opacity-50"
           >
             <Send size={16} aria-hidden="true" />
             {busy === 'publish' ? 'Публикация…' : 'Опубликовать'}
