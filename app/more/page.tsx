@@ -45,18 +45,18 @@ export default function MorePage() {
   return (
     <div>
       <PageHeader title="Ещё" />
-      <div className="flex flex-col gap-3 p-4">
+      <div className="fade-up flex flex-col gap-2.5 px-5 py-6">
         {sections.map(({ href, icon: Icon, title, description }) => (
           <Link key={href} href={href}>
-            <Card className="flex items-center gap-3">
-              <div className="ring-glow flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <Icon size={20} aria-hidden="true" />
+            <Card className="flex items-center gap-3.5 transition-colors hover:border-white/15">
+              <div className="flex size-9 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                <Icon size={18} aria-hidden="true" />
               </div>
               <div className="flex-1">
-                <p className="text-sm font-medium">{title}</p>
-                <p className="text-xs text-muted-foreground">{description}</p>
+                <p className="text-[13px] font-medium text-foreground">{title}</p>
+                <p className="text-[12px] text-muted-foreground">{description}</p>
               </div>
-              <ChevronRight size={18} className="text-muted-foreground" aria-hidden="true" />
+              <ChevronRight size={16} className="text-muted-foreground" aria-hidden="true" />
             </Card>
           </Link>
         ))}

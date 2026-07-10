@@ -36,10 +36,11 @@ export default function StatsPage() {
   const maxDaily = Math.max(1, ...(data?.daily ?? []).map((d) => Number(d.posts)))
 
   return (
-    <main className="flex flex-col gap-4 px-4 pb-6 pt-4">
+    <main>
       <PageHeader title="Статистика" />
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="fade-up flex flex-col gap-4 px-5 py-6">
+      <div className="grid grid-cols-2 gap-3">
         <StatCard label="Генераций (30 дн)" value={totals ? String(totals.generations) : '—'} />
         <StatCard label="Успешность" value={successRate !== null ? `${successRate}%` : '—'} />
         <StatCard label="Публикаций" value={totals ? String(totals.publishes) : '—'} />
@@ -113,6 +114,7 @@ export default function StatsPage() {
           </ul>
         </Card>
       ) : null}
+      </div>
     </main>
   )
 }

@@ -96,10 +96,10 @@ export default function KeysPage() {
         }
       />
 
-      <main className="flex flex-col gap-3 px-4 py-4">
+      <main className="fade-up flex flex-col gap-3 px-5 py-6">
         {showForm ? (
           <Card className="flex flex-col gap-3">
-            <span className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Новый ключ</span>
+            <span className="text-[12px] font-medium text-muted-foreground">Новый ключ</span>
 
             <label className="flex flex-col gap-1.5">
               <span className="text-[11px] text-muted-foreground">Провайдер</span>

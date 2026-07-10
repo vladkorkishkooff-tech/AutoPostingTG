@@ -33,7 +33,7 @@ export default function SettingsPage() {
   return (
     <div>
       <PageHeader title="Настройки и безопасность" />
-      <div className="flex flex-col gap-4 p-4">
+      <div className="fade-up flex flex-col gap-5 px-5 py-6">
         <section aria-label="Канал">
           <h2 className="mb-2 px-1 text-sm text-muted-foreground">Канал</h2>
           <Card className="!py-1.5 divide-y divide-border">
@@ -72,11 +72,7 @@ export default function SettingsPage() {
               right={
                 <span className="flex items-center gap-2">
                   <span className="font-mono text-xs text-muted-foreground">env: PROXY_URL</span>
-                  <span
-                    className="size-2 rounded-full bg-primary"
-                    style={{ boxShadow: '0 0 8px rgba(47,226,142,0.7)' }}
-                    aria-hidden="true"
-                  />
+                  <span className="size-2 rounded-full bg-[#4cb782]" aria-hidden="true" />
                 </span>
               }
             />

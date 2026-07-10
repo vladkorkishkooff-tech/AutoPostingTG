@@ -15,13 +15,11 @@ type Post = {
   published_at: string | null
 }
 
-function MiniStat({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
+function MiniStat({ label, value }: { label: string; value: string; accent?: boolean }) {
   return (
     <div className="flex flex-col items-center gap-0.5">
-      <span className={`font-mono text-lg font-bold ${accent ? 'text-glow text-primary' : 'text-foreground'}`}>
-        {value}
-      </span>
-      <span className="text-center text-[9px] uppercase tracking-[0.12em] text-muted-foreground">{label}</span>
+      <span className="text-lg font-semibold tracking-tight text-foreground">{value}</span>
+      <span className="text-center text-[10px] text-muted-foreground">{label}</span>
     </div>
   )
 }
@@ -37,8 +35,8 @@ export default function HistoryPage() {
     <div>
       <PageHeader title="История публикаций" />
 
-      <div className="flex flex-col gap-4 p-4">
-        <div className="glass grid grid-cols-4 gap-2 p-3">
+      <div className="fade-up flex flex-col gap-5 px-5 py-6">
+        <div className="glass grid grid-cols-4 gap-2 p-4">
           <MiniStat label="Всего постов" value={isLoading ? '—' : String(posts.length)} />
           <MiniStat label="С фото" value={isLoading ? '—' : String(withImages)} />
           <MiniStat label="Тем" value={isLoading ? '—' : String(topics)} />
@@ -57,23 +55,23 @@ export default function HistoryPage() {
         ) : (
           <section aria-label="Список публикаций" className="flex flex-col gap-3">
             {posts.map((post) => (
-              <article key={post.id} className="glass flex gap-3 p-3">
+              <article key={post.id} className="glass flex gap-3.5 p-4">
                 {post.image_url ? (
                   <img
                     src={post.image_url || '/placeholder.svg'}
                     alt=""
-                    className="size-16 shrink-0 rounded-xl border border-primary/20 object-cover"
+                    className="size-14 shrink-0 rounded-lg border border-border object-cover"
                   />
                 ) : (
-                  <div className="flex size-16 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-[rgba(8,28,20,0.6)] text-[10px] text-muted-foreground">
+                  <div className="flex size-14 shrink-0 items-center justify-center rounded-lg border border-border bg-muted text-[10px] text-muted-foreground">
                     txt
                   </div>
                 )}
                 <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                  <p className="text-[13px] leading-snug text-foreground">{post.text}</p>
+                  <p className="text-[13px] leading-relaxed text-foreground">{post.text}</p>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3 text-muted-foreground">
-                      <span className="font-mono text-[10px]">
+                      <span className="text-[11px]">
                         {post.published_at
                           ? new Date(post.published_at).toLocaleString('ru-RU', {
                               day: '2-digit',
@@ -83,9 +81,9 @@ export default function HistoryPage() {
                             })
                           : ''}
                       </span>
-                      <span className="text-[10px] text-primary">{post.topic}</span>
+                      <span className="text-[11px] text-primary">{post.topic}</span>
                     </div>
-                    <ShieldCheck size={15} className="shrink-0 text-primary" aria-hidden="true" />
+                    <ShieldCheck size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />
                   </div>
                 </div>
               </article>

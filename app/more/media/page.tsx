@@ -23,15 +23,15 @@ export default function MediaPage() {
   return (
     <div>
       <PageHeader title="Медиа лаборатория" />
-      <div className="flex flex-col gap-4 p-4">
+      <div className="fade-up flex flex-col gap-4 px-5 py-6">
         <div className="flex gap-2 overflow-x-auto">
           {SOURCES.map((s, i) => (
             <span
               key={s}
-              className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs ${
+              className={`shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-medium ${
                 i === 0
-                  ? 'btn-outline-green !border-primary/70 font-semibold !text-primary'
-                  : 'glass text-muted-foreground'
+                  ? 'border-primary/40 bg-primary/10 text-foreground'
+                  : 'glass border-transparent text-muted-foreground'
               }`}
             >
               {s}
@@ -66,10 +66,8 @@ export default function MediaPage() {
               type="button"
               onClick={() => setSelected(img)}
               aria-pressed={selected?.id === img.id}
-              className={`relative overflow-hidden rounded-xl border transition-all ${
-                selected?.id === img.id
-                  ? 'border-primary/70 ring-glow'
-                  : 'border-primary/15'
+              className={`relative overflow-hidden rounded-lg border transition-colors ${
+                selected?.id === img.id ? 'border-primary/70' : 'border-border'
               }`}
             >
               <img src={img.url || "/placeholder.svg"} alt={img.topic} className="aspect-square w-full object-cover" />
@@ -83,7 +81,7 @@ export default function MediaPage() {
               <img
                 src={selected.url || "/placeholder.svg"}
                 alt={selected.topic}
-                className="size-14 rounded-lg border border-primary/30 object-cover"
+                className="size-14 rounded-lg border border-border object-cover"
               />
               <button
                 type="button"

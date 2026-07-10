@@ -23,8 +23,8 @@ export default function ProvidersPage() {
   return (
     <div>
       <PageHeader title="Стек провайдеров" />
-      <div className="flex flex-col gap-3 p-4">
-        <p className="px-1 text-xs text-muted-foreground">Приоритет и маршрутизация запросов</p>
+      <div className="fade-up flex flex-col gap-3 px-5 py-6">
+        <p className="px-0.5 text-[12px] text-muted-foreground">Приоритет и маршрутизация запросов</p>
 
         {isLoading ? (
           <div className="glass p-4">
@@ -41,18 +41,18 @@ export default function ProvidersPage() {
           providers.map((p, index) => {
             const meta = META[p.provider] ?? { label: p.provider, cost: '' }
             return (
-              <div key={p.provider} className="glass flex items-center gap-3 p-3">
-                <span className="flex size-6 items-center justify-center rounded-md border border-primary/25 font-mono text-[11px] text-muted-foreground">
+              <div key={p.provider} className="glass flex items-center gap-3.5 p-4">
+                <span className="flex size-6 items-center justify-center rounded-md border border-border text-[11px] text-muted-foreground">
                   {index + 1}
                 </span>
-                <span className="ring-glow flex size-9 items-center justify-center rounded-lg bg-primary/10 font-mono text-sm font-bold text-primary">
+                <span className="flex size-9 items-center justify-center rounded-lg bg-muted text-sm font-semibold text-foreground">
                   {meta.label[0]}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-foreground">{meta.label}</p>
+                  <p className="text-[13px] font-medium text-foreground">{meta.label}</p>
                   <p className="text-[11px] text-muted-foreground">{meta.cost}</p>
                 </div>
-                <span className={`font-mono text-[11px] ${p.is_enabled ? 'text-primary' : 'text-muted-foreground'}`}>
+                <span className={`text-[11px] ${p.is_enabled ? 'text-[#4cb782]' : 'text-muted-foreground'}`}>
                   {p.is_enabled ? 'Онлайн' : 'Выкл'}
                 </span>
                 <Toggle checked={p.is_enabled} label={`Провайдер ${meta.label}`} disabled />

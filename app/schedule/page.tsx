@@ -56,10 +56,10 @@ export default function SchedulePage() {
     <div>
       <PageHeader title="Расписание" />
 
-      <div className="flex flex-col gap-4 p-4">
-        <div className="flex items-center justify-between px-1">
-          <p className="text-sm font-medium text-foreground">Сегодня, {today}</p>
-          <span className="text-[11px] text-muted-foreground">
+      <div className="fade-up flex flex-col gap-5 px-5 py-6">
+        <div className="flex items-center justify-between px-0.5">
+          <p className="text-[13px] font-medium text-foreground">Сегодня, {today}</p>
+          <span className="text-[12px] text-muted-foreground">
             {slots.length > 0 ? `${slots.length} слот(ов)` : ''}
           </span>
         </div>
@@ -70,7 +70,7 @@ export default function SchedulePage() {
             value={time}
             onChange={(e) => setTime(e.target.value)}
             aria-label="Время публикации"
-            className="flex-1 rounded-xl border border-primary/20 bg-[rgba(8,28,20,0.7)] px-4 py-2.5 font-mono text-sm outline-none focus:border-primary/60"
+            className="flex-1 rounded-lg border border-border bg-muted px-4 py-2.5 text-sm outline-none focus:border-primary/50"
           />
           <button
             type="button"
@@ -97,16 +97,15 @@ export default function SchedulePage() {
             {slots.map((s, i) => (
               <div key={s.id} className="relative flex gap-3 pb-4">
                 <div className="flex w-14 shrink-0 flex-col items-center">
-                  <span className="text-center font-mono text-[11px] leading-tight text-muted-foreground">
+                  <span className="text-center text-[12px] leading-tight text-muted-foreground">
                     {s.post_time.slice(0, 5)}
                   </span>
                   <span
-                    className={`mt-1.5 size-2.5 rounded-full ${s.is_active ? 'bg-primary' : 'bg-muted-foreground/40'}`}
-                    style={s.is_active ? { boxShadow: '0 0 8px rgba(47,226,142,0.7)' } : undefined}
+                    className={`mt-1.5 size-2 rounded-full ${s.is_active ? 'bg-primary' : 'bg-muted-foreground/40'}`}
                     aria-hidden="true"
                   />
                   {i < slots.length - 1 ? (
-                    <span className="mt-1 w-px flex-1 bg-primary/25" aria-hidden="true" />
+                    <span className="mt-1 w-px flex-1 bg-border" aria-hidden="true" />
                   ) : null}
                 </div>
                 <div className="glass flex flex-1 items-center gap-3 p-2.5">

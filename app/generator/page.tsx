@@ -60,11 +60,11 @@ export default function GeneratorPage() {
     <div>
       <PageHeader title="AI Генератор поста" />
 
-      <div className="flex flex-col gap-4 p-4">
+      <div className="fade-up flex flex-col gap-6 px-5 py-6">
         <label className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-foreground">Тема</span>
-            <span className="font-mono text-[11px] text-muted-foreground">{topic.length}/120</span>
+            <span className="text-[13px] font-medium text-foreground">Тема</span>
+            <span className="text-[11px] text-muted-foreground">{topic.length}/120</span>
           </div>
           <input
             value={topic}
@@ -76,7 +76,7 @@ export default function GeneratorPage() {
         </label>
 
         <fieldset>
-          <legend className="mb-2 text-sm text-foreground">Режим</legend>
+          <legend className="mb-2 text-[13px] font-medium text-foreground">Режим</legend>
           <div className="grid grid-cols-4 gap-2">
             {MODES.map((m) => (
               <button
@@ -84,10 +84,10 @@ export default function GeneratorPage() {
                 type="button"
                 onClick={() => setMode(m.id)}
                 aria-pressed={mode === m.id}
-                className={`rounded-xl px-2 py-2 text-xs transition-all ${
+                className={`rounded-lg border px-2 py-2 text-xs font-medium transition-colors ${
                   mode === m.id
-                    ? 'btn-outline-green !border-primary/70 font-semibold !text-primary text-glow'
-                    : 'glass text-muted-foreground hover:text-foreground'
+                    ? 'border-primary/50 bg-primary/10 text-foreground'
+                    : 'glass border-transparent text-muted-foreground hover:text-foreground'
                 }`}
               >
                 {m.label}
@@ -97,21 +97,19 @@ export default function GeneratorPage() {
         </fieldset>
 
         <section aria-label="Предпросмотр поста">
-          <h2 className="mb-2 text-sm text-foreground">Предпросмотр поста</h2>
-          <div className="glass-strong flex gap-3 p-3">
-            <div className="flex min-w-0 flex-1 flex-col justify-between gap-1.5 py-0.5">
+          <h2 className="mb-2 text-[13px] font-medium text-foreground">Предпросмотр поста</h2>
+          <div className="glass flex gap-3 p-4">
+            <div className="flex min-w-0 flex-1 flex-col justify-between gap-2">
               {preview ? (
                 <>
-                  <p className="text-[13px] leading-snug text-foreground">{preview}</p>
+                  <p className="text-[13px] leading-relaxed text-foreground">{preview}</p>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-primary underline decoration-primary/40 underline-offset-2">
-                      {topic || 'Тема'}
-                    </span>
-                    <ShieldCheck size={15} className="text-primary" aria-hidden="true" />
+                    <span className="text-xs text-primary">{topic || 'Тема'}</span>
+                    <ShieldCheck size={15} className="text-muted-foreground" aria-hidden="true" />
                   </div>
                 </>
               ) : (
-                <p className="py-4 text-center text-sm text-muted-foreground">
+                <p className="py-6 text-center text-[13px] text-muted-foreground">
                   Нажмите Preview, чтобы сгенерировать текст
                 </p>
               )}
@@ -123,19 +121,16 @@ export default function GeneratorPage() {
           <div className="flex items-center gap-3 px-1">
             <span className="shrink-0 text-xs text-muted-foreground">Оценка качества</span>
             <div
-              className="h-1.5 flex-1 overflow-hidden rounded-full bg-[rgba(47,226,142,0.12)]"
+              className="h-1 flex-1 overflow-hidden rounded-full bg-muted"
               role="progressbar"
               aria-valuenow={score}
               aria-valuemin={0}
               aria-valuemax={100}
               aria-label="Оценка качества"
             >
-              <div
-                className="h-full rounded-full bg-primary"
-                style={{ width: `${score}%`, boxShadow: '0 0 8px rgba(47,226,142,0.6)' }}
-              />
+              <div className="h-full rounded-full bg-primary" style={{ width: `${score}%` }} />
             </div>
-            <span className="shrink-0 font-mono text-xs text-primary">{score}/100</span>
+            <span className="shrink-0 text-xs text-muted-foreground">{score}/100</span>
           </div>
         ) : null}
 
