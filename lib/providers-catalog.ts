@@ -100,6 +100,16 @@ export const PROVIDERS_CATALOG: ProviderDef[] = [
     ],
   },
   {
+    id: 'v0',
+    name: 'v0 (Vercel)',
+    keyUrl: 'https://v0.app/settings/api-keys',
+    baseUrl: 'https://api.v0.dev/v1',
+    models: [
+      { id: 'v0-1.5-md', name: 'v0-1.5-md (рекомендуется)' },
+      { id: 'v0-1.5-lg', name: 'v0-1.5-lg' },
+    ],
+  },
+  {
     id: 'openrouter',
     name: 'OpenRouter',
     keyUrl: 'https://openrouter.ai/settings/keys',

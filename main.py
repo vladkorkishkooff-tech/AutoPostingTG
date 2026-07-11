@@ -44,6 +44,16 @@ def _create_bot(config: AppConfig) -> Bot | None:
 bot = _create_bot(config)
 dp = Dispatcher()
 
+# Команды настройки (/setup, /channels, /addtime, /topics и др.) — setup_commands.py
+import setup_commands as _setup_commands  # noqa: E402
+
+dp.include_router(
+    _setup_commands.attach(
+        config,
+        lambda user_id: not config.admin_user_ids or user_id in config.admin_user_ids,
+    )
+)
+
 
 BTN_PREVIEW = "🔎 Preview"
 BTN_POST = "🚀 Post"
@@ -145,9 +155,16 @@ def _help_text() -> str:
         "/preview [режим] [тема] - отправить тестовый пост в этот чат\n"
         "/modes - показать режимы\n"
         "/test - проверить конфигурацию\n\n"
+        "Настройка системы (всё как в Mini App):\n"
+        "/setup - обзор текущей настройки\n"
+        "/channels, /addchannel, /usechannel - каналы\n"
+        "/settopic, /setmode, /setmedia - тема, режим, медиа\n"
+        "/times, /addtime, /deltime - расписание\n"
+        "/topics, /addtopic, /deltopic - пул тем\n\n"
         "Примеры:\n"
         "/post wow космос\n"
-        "/preview funny биология"
+        "/addchannel @mychannel космос\n"
+        "/addtime 09:00 история funny"
     )
 
 
@@ -902,10 +919,16 @@ async def run_bot():
         await bot.set_my_commands(
             [
                 BotCommand(command="start", description="Открыть меню"),
-                BotCommand(command="menu", description="Показать кнопки меню"),
+                BotCommand(command="setup", description="Обзор и настройка системы"),
+                BotCommand(command="channels", description="Мои каналы"),
+                BotCommand(command="addchannel", description="Добавить канал"),
+                BotCommand(command="addtime", description="Добавить время публикации"),
+                BotCommand(command="times", description="Расписание публикаций"),
+                BotCommand(command="topics", description="Пул тем (ротация)"),
+                BotCommand(command="setmedia", description="Медиа: auto / ai / off"),
                 BotCommand(command="preview", description="Тестовый пост в этот чат"),
                 BotCommand(command="post", description="Опубликовать пост в канал"),
-                BotCommand(command="modes", description="Показать режимы генерации"),
+                BotCommand(command="modes", description="Режимы генерации"),
                 BotCommand(command="test", description="Проверить конфигурацию"),
             ]
         )

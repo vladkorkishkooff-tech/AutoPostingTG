@@ -97,6 +97,14 @@ def _provider_map(config: AppConfig) -> dict[str, LLMProvider]:
             api_key=config.custom_openai_api_key,
             models=config.custom_openai_models,
         ),
+        # v0 Model API (OpenAI-совместимый). Модели заточены под код,
+        # но подходят для теста цепочки «ключ → генерация → публикация».
+        "v0": LLMProvider(
+            name="v0",
+            base_url="https://api.v0.dev/v1",
+            api_key=config.v0_api_key,
+            models=config.v0_models,
+        ),
     }
 
 

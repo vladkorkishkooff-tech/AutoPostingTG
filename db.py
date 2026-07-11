@@ -72,6 +72,121 @@ async def ensure_channel(
     return row["id"]
 
 
+# ---------- Настройка через бота (команды /setup и др.) ----------
+
+
+async def owner_channels(pool: asyncpg.Pool, user_id: int) -> list[dict]:
+    """Каналы владельца с настройками — для команд бота."""
+    rows = await pool.fetch(
+        """
+        SELECT id, chat_id, title, topic, mode, image_policy, is_active
+        FROM channels
+        WHERE user_id = $1
+        ORDER BY id
+        """,
+        user_id,
+    )
+    return [dict(r) for r in rows]
+
+
+async def update_channel_field(
+    pool: asyncpg.Pool,
+    channel_id: int,
+    field: str,
+    value: str,
+) -> None:
+    """Обновляет одно из настраиваемых полей канала (whitelist)."""
+    allowed = {"topic", "mode", "image_policy", "title"}
+    if field not in allowed:
+        raise ValueError(f"field {field} is not editable")
+    await pool.execute(
+        f"UPDATE channels SET {field} = $2, updated_at = now() WHERE id = $1",
+        channel_id,
+        value,
+    )
+
+
+async def schedules_for_channel(pool: asyncpg.Pool, channel_id: int) -> list[dict]:
+    rows = await pool.fetch(
+        """
+        SELECT id, post_time, days_of_week, timezone, is_active, topic, mode
+        FROM schedules
+        WHERE channel_id = $1
+        ORDER BY post_time
+        """,
+        channel_id,
+    )
+    return [dict(r) for r in rows]
+
+
+async def add_schedule_slot(
+    pool: asyncpg.Pool,
+    channel_id: int,
+    post_time: str,
+    *,
+    topic: str | None = None,
+    mode: str | None = None,
+) -> int:
+    row = await pool.fetchrow(
+        """
+        INSERT INTO schedules (channel_id, post_time, topic, mode)
+        VALUES ($1, $2::time, $3, $4)
+        RETURNING id
+        """,
+        channel_id,
+        post_time,
+        topic,
+        mode,
+    )
+    return row["id"]
+
+
+async def delete_schedule_slot(pool: asyncpg.Pool, channel_id: int, post_time: str) -> int:
+    """Удаляет слот по времени. Возвращает число удалённых строк."""
+    result = await pool.execute(
+        "DELETE FROM schedules WHERE channel_id = $1 AND post_time = $2::time",
+        channel_id,
+        post_time,
+    )
+    return int(result.split()[-1])
+
+
+async def pool_topics(pool: asyncpg.Pool, channel_id: int) -> list[dict]:
+    rows = await pool.fetch(
+        """
+        SELECT id, topic, is_active, last_used_at
+        FROM topic_pool
+        WHERE channel_id = $1
+        ORDER BY id
+        """,
+        channel_id,
+    )
+    return [dict(r) for r in rows]
+
+
+async def add_pool_topic(pool: asyncpg.Pool, channel_id: int, topic: str) -> bool:
+    """Добавляет тему в пул. False, если такая тема уже есть."""
+    result = await pool.execute(
+        """
+        INSERT INTO topic_pool (channel_id, topic)
+        VALUES ($1, $2)
+        ON CONFLICT (channel_id, topic) DO NOTHING
+        """,
+        channel_id,
+        topic,
+    )
+    return result.endswith("1")
+
+
+async def delete_pool_topic(pool: asyncpg.Pool, channel_id: int, topic_id: int) -> int:
+    result = await pool.execute(
+        "DELETE FROM topic_pool WHERE channel_id = $1 AND id = $2",
+        channel_id,
+        topic_id,
+    )
+    return int(result.split()[-1])
+
+
 async def recent_texts(
     pool: asyncpg.Pool,
     channel_id: int,

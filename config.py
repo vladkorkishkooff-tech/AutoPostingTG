@@ -90,6 +90,8 @@ class AppConfig:
     custom_openai_api_key: str
     custom_openai_base_url: str
     custom_openai_models: list[str]
+    v0_api_key: str
+    v0_models: list[str]
 
     nasa_api_key: str
     pixabay_api_key: str
@@ -124,7 +126,7 @@ def load_config() -> AppConfig:
         admin_user_ids=_get_ids("ADMIN_USER_IDS"),
         llm_provider_order=_get_list(
             "LLM_PROVIDER_ORDER",
-            ["groq", "mistral", "gemini", "nvidia", "openrouter", "custom"],
+            ["groq", "mistral", "gemini", "nvidia", "openrouter", "custom", "v0"],
         ),
         request_timeout_seconds=_get_int("REQUEST_TIMEOUT_SECONDS", 30),
         max_image_bytes=_get_int("MAX_IMAGE_BYTES", 8_000_000),
@@ -173,6 +175,8 @@ def load_config() -> AppConfig:
         custom_openai_api_key=_getenv("CUSTOM_OPENAI_API_KEY"),
         custom_openai_base_url=_getenv("CUSTOM_OPENAI_BASE_URL"),
         custom_openai_models=_get_list("CUSTOM_OPENAI_MODELS", [_getenv("CUSTOM_OPENAI_MODEL")]),
+        v0_api_key=_getenv("V0_API_KEY"),
+        v0_models=_get_list("V0_MODELS", [_getenv("V0_MODEL", "v0-1.5-md")]),
         nasa_api_key=_getenv("NASA_API_KEY") or "DEMO_KEY",
         pixabay_api_key=_getenv("PIXABAY_API_KEY"),
         pexels_api_key=_getenv("PEXELS_API_KEY"),

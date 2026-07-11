@@ -27,6 +27,7 @@ PROVIDER_BASE_URLS = {
     "groq": "https://api.groq.com/openai/v1",
     "mistral": "https://api.mistral.ai/v1",
     "openrouter": "https://openrouter.ai/api/v1",
+    "v0": "https://api.v0.dev/v1",
 }
 
 PROVIDER_DEFAULT_MODELS = {
@@ -39,6 +40,7 @@ PROVIDER_DEFAULT_MODELS = {
     "groq": "llama-3.3-70b-versatile",
     "mistral": "mistral-small-latest",
     "openrouter": "deepseek/deepseek-chat-v3-0324:free",
+    "v0": "v0-1.5-md",
 }
 
 
