@@ -238,6 +238,87 @@ async def _call_openai_compatible(
         return None
 
 
+_IMAGE_QUERY_CACHE: dict[str, list[str]] = {}
+
+
+async def topic_to_image_queries(
+    topic: str,
+    config: AppConfig | None = None,
+    user_providers: list[dict] | None = None,
+) -> list[str]:
+    """Переводит тему поста в 3 английских поисковых запроса для фотостоков.
+
+    Главный фикс качества фото: Unsplash/Pexels/Pixabay плохо ищут по-русски.
+    Результат кешируется в памяти по теме. При отказе всех провайдеров
+    возвращается [] — вызывающий код ищет по теме как раньше.
+    """
+    key = topic.strip().lower()
+    if key in _IMAGE_QUERY_CACHE:
+        return _IMAGE_QUERY_CACHE[key]
+
+    config = config or load_config()
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You convert a social media post topic (any language) into English stock photo "
+                "search queries. Return EXACTLY 3 short queries (2-4 words each), one per line, "
+                "no numbering, no punctuation, no explanations. Queries must describe concrete "
+                "visual scenes/objects a photographer could shoot, not abstract concepts."
+            ),
+        },
+        {"role": "user", "content": f"Topic: {topic}"},
+    ]
+
+    candidates: list[LLMProvider] = []
+    for up in user_providers or []:
+        p = LLMProvider(name=up["name"], base_url=up["base_url"], api_key=up["api_key"], models=up["models"])
+        if p.is_enabled:
+            candidates.append(p)
+    provider_map = _provider_map(config)
+    for name in config.llm_provider_order:
+        p = provider_map.get(name)
+        if p and p.is_enabled:
+            candidates.append(p)
+
+    timeout = aiohttp.ClientTimeout(total=min(config.request_timeout_seconds, 15))
+    for provider in candidates[:3]:  # максимум 3 попытки — это вспомогательный вызов
+        model = provider.models[0]
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(
+                    f"{provider.base_url.rstrip('/')}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {provider.api_key}",
+                        "Content-Type": "application/json",
+                        "User-Agent": "ai-content-manager/1.0",
+                    },
+                    json={"model": model, "messages": messages, "temperature": 0.2, "max_tokens": 60},
+                    proxy=config.outbound_proxy_url or None,
+                ) as response:
+                    if response.status >= 400:
+                        continue
+                    data = await response.json()
+                    content = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+                    queries = [
+                        line.strip().strip("-•.,\"'")
+                        for line in content.splitlines()
+                        if line.strip() and len(line.strip()) < 60
+                    ][:3]
+                    if queries:
+                        logger.info("Image queries for topic %r via %s: %s", topic, provider.name, queries)
+                        _IMAGE_QUERY_CACHE[key] = queries
+                        if len(_IMAGE_QUERY_CACHE) > 500:
+                            _IMAGE_QUERY_CACHE.clear()
+                        return queries
+        except (aiohttp.ClientError, TimeoutError) as exc:
+            logger.warning("Image query translation via %s failed: %s", provider.name, exc)
+        except Exception:
+            logger.exception("Unexpected image query translation error via %s", provider.name)
+
+    return []
+
+
 async def generate_post(
     topic: str,
     config: AppConfig | None = None,

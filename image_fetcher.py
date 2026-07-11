@@ -28,7 +28,16 @@ class ImageResult:
         return f"{safe_source}{suffix}"
 
 
+# Кеш AI-переведённых запросов: заполняется в get_science_photo перед поиском
+_AI_QUERIES: dict[str, list[str]] = {}
+
+
 def _topic_queries(topic: str) -> list[str]:
+    # AI-запросы приоритетнее словаря: конкретные английские сцены ищутся на порядок лучше
+    ai_queries = _AI_QUERIES.get(topic.strip().lower())
+    if ai_queries:
+        return ai_queries
+
     mapping = {
         "наука": ["science research", "laboratory science", "scientific experiment"],
         "космос": ["space astronomy", "galaxy", "nebula", "planet"],
@@ -267,6 +276,37 @@ async def fetch_unsplash(
     return random.choice(candidates) if candidates else None
 
 
+async def fetch_openverse(
+    session: aiohttp.ClientSession,
+    topic: str,
+    config: AppConfig,
+    excluded_urls: set[str],
+) -> ImageResult | None:
+    """Openverse — агрегатор 800+ млн CC-изображений (Flickr, музеи и др.), без ключа."""
+    params = {
+        "q": _pick_query(topic),
+        "page_size": "20",
+        "aspect_ratio": "wide",
+        "mature": "false",
+        "filter_dead": "true",
+    }
+    data = await _fetch_json(
+        session,
+        "https://api.openverse.org/v1/images/",
+        params=params,
+        proxy=config.outbound_proxy_url or None,
+    )
+    results = (data or {}).get("results", [])
+    candidates = [
+        ImageResult(url=item["url"], source="Openverse", title=item.get("title") or "")
+        for item in results
+        if item.get("url")
+        and item["url"] not in excluded_urls
+        and not item["url"].lower().endswith((".svg", ".gif"))
+    ]
+    return random.choice(candidates) if candidates else None
+
+
 async def get_science_photo(
     topic: str = "наука",
     config: AppConfig | None = None,
@@ -277,11 +317,27 @@ async def get_science_photo(
     timeout = aiohttp.ClientTimeout(total=config.request_timeout_seconds)
     headers = {"User-Agent": USER_AGENT, "Accept": "application/json,image/*,*/*;q=0.8"}
 
+    # Главный фикс качества: переводим тему в английские поисковые запросы через AI
+    key = topic.strip().lower()
+    if key not in _AI_QUERIES:
+        try:
+            from ai_gen import topic_to_image_queries
+
+            queries = await topic_to_image_queries(topic, config)
+            if queries:
+                _AI_QUERIES[key] = queries
+                if len(_AI_QUERIES) > 500:
+                    _AI_QUERIES.clear()
+                    _AI_QUERIES[key] = queries
+        except Exception:
+            logger.exception("AI image query translation failed, falling back to raw topic")
+
     providers = [
         ("Pixabay", lambda session: fetch_pixabay(session, topic, config, excluded_urls)),
         ("Pexels", lambda session: fetch_pexels(session, topic, config, excluded_urls)),
-        ("NASA", lambda session: fetch_nasa(session, topic, config, excluded_urls)),
+        ("Openverse", lambda session: fetch_openverse(session, topic, config, excluded_urls)),
         ("Wikimedia Commons", lambda session: fetch_wikimedia(session, topic, config, excluded_urls)),
+        ("NASA", lambda session: fetch_nasa(session, topic, config, excluded_urls)),
         ("Unsplash", lambda session: fetch_unsplash(session, topic, config, excluded_urls)),
     ]
 
