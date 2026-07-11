@@ -134,6 +134,164 @@ async def has_text(
     return row is not None
 
 
+async def get_channel_settings(pool: asyncpg.Pool, channel_id: int) -> dict | None:
+    """Настройки канала: медиа-политика и базовые поля."""
+    row = await pool.fetchrow(
+        "SELECT id, chat_id, topic, mode, image_policy, is_active FROM channels WHERE id = $1",
+        channel_id,
+    )
+    return dict(row) if row else None
+
+
+async def pick_pool_topic(pool: asyncpg.Pool, channel_id: int) -> str | None:
+    """Ротация тем: берёт наименее недавно использованную активную тему из пула.
+
+    Возвращает None, если пул пуст — тогда используется тема канала/слота.
+    """
+    row = await pool.fetchrow(
+        """
+        UPDATE topic_pool
+        SET last_used_at = now()
+        WHERE id = (
+            SELECT id FROM topic_pool
+            WHERE channel_id = $1 AND is_active
+            ORDER BY last_used_at NULLS FIRST, id
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+        )
+        RETURNING topic
+        """,
+        channel_id,
+    )
+    return row["topic"] if row else None
+
+
+async def insert_queued_post(
+    pool: asyncpg.Pool,
+    channel_id: int,
+    *,
+    schedule_id: int | None,
+    topic: str,
+    mode: str,
+    text: str,
+    image_url: str | None,
+    image_source: str | None,
+    media_type: str | None,
+    scheduled_at: datetime,
+) -> int:
+    """Кладёт сгенерированный пост в очередь на предпросмотр (status='queued')."""
+    row = await pool.fetchrow(
+        """
+        INSERT INTO posts (channel_id, schedule_id, topic, mode, text, text_hash,
+                           image_url, image_source, media_type, status, scheduled_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'queued', $10)
+        RETURNING id
+        """,
+        channel_id,
+        schedule_id,
+        topic,
+        mode,
+        text,
+        text_hash(text),
+        image_url,
+        image_source,
+        media_type,
+        scheduled_at,
+    )
+    return row["id"]
+
+
+async def get_queued_post_for_slot(
+    pool: asyncpg.Pool,
+    schedule_id: int,
+    scheduled_at: datetime,
+) -> dict | None:
+    """Пост из очереди для конкретного слота (queued или approved).
+
+    Rejected-посты игнорируются — вместо них генерируется новый.
+    """
+    row = await pool.fetchrow(
+        """
+        SELECT id, channel_id, topic, mode, text, image_url, image_source, media_type, status
+        FROM posts
+        WHERE schedule_id = $1
+          AND status IN ('queued', 'approved')
+          AND scheduled_at BETWEEN $2::timestamptz - interval '12 hours' AND $2::timestamptz + interval '5 minutes'
+        ORDER BY status = 'approved' DESC, created_at DESC
+        LIMIT 1
+        """,
+        schedule_id,
+        scheduled_at,
+    )
+    return dict(row) if row else None
+
+
+async def has_queued_post_for_slot(
+    pool: asyncpg.Pool,
+    schedule_id: int,
+    scheduled_at: datetime,
+) -> bool:
+    """Есть ли уже пост (в любом статусе) для этого слота — защита от повторной генерации."""
+    row = await pool.fetchrow(
+        """
+        SELECT 1 FROM posts
+        WHERE schedule_id = $1
+          AND scheduled_at BETWEEN $2::timestamptz - interval '2 minutes' AND $2::timestamptz + interval '2 minutes'
+        LIMIT 1
+        """,
+        schedule_id,
+        scheduled_at,
+    )
+    return row is not None
+
+
+async def mark_post_published(
+    pool: asyncpg.Pool,
+    post_id: int,
+    telegram_message_id: int | None,
+) -> None:
+    await pool.execute(
+        """
+        UPDATE posts
+        SET status = 'published', published_at = now(), telegram_message_id = $2, error = NULL
+        WHERE id = $1
+        """,
+        post_id,
+        telegram_message_id,
+    )
+
+
+async def mark_post_failed(pool: asyncpg.Pool, post_id: int, error: str) -> None:
+    await pool.execute(
+        "UPDATE posts SET status = 'failed', error = $2 WHERE id = $1",
+        post_id,
+        error[:500],
+    )
+
+
+async def active_channels(pool: asyncpg.Pool) -> list[dict]:
+    rows = await pool.fetch(
+        "SELECT id, chat_id FROM channels WHERE is_active ORDER BY id"
+    )
+    return [dict(r) for r in rows]
+
+
+async def record_channel_metric(pool: asyncpg.Pool, channel_id: int, member_count: int) -> None:
+    await pool.execute(
+        "INSERT INTO channel_metrics (channel_id, member_count) VALUES ($1, $2)",
+        channel_id,
+        member_count,
+    )
+
+
+async def last_metric_at(pool: asyncpg.Pool, channel_id: int) -> datetime | None:
+    row = await pool.fetchrow(
+        "SELECT max(captured_at) AS ts FROM channel_metrics WHERE channel_id = $1",
+        channel_id,
+    )
+    return row["ts"] if row else None
+
+
 async def add_published_post(
     pool: asyncpg.Pool,
     channel_id: int,
@@ -144,12 +302,14 @@ async def add_published_post(
     image_url: str | None,
     image_source: str | None,
     telegram_message_id: int | None = None,
+    schedule_id: int | None = None,
+    media_type: str | None = None,
 ) -> int:
     row = await pool.fetchrow(
         """
         INSERT INTO posts (channel_id, topic, mode, text, text_hash, image_url, image_source,
-                           status, published_at, telegram_message_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'published', $8, $9)
+                           status, published_at, telegram_message_id, schedule_id, media_type)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'published', $8, $9, $10, $11)
         RETURNING id
         """,
         channel_id,
@@ -161,5 +321,7 @@ async def add_published_post(
         image_source,
         datetime.now(timezone.utc),
         telegram_message_id,
+        schedule_id,
+        media_type,
     )
     return row["id"]

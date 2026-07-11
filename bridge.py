@@ -18,11 +18,12 @@ def _check_secret(request: web.Request) -> bool:
     return bool(secret) and request.headers.get("X-Bridge-Secret") == secret
 
 
-async def start_bridge(generate_preview, publish_post) -> web.AppRunner | None:
+async def start_bridge(generate_preview, publish_post, fetch_image=None) -> web.AppRunner | None:
     """Start the bridge server.
 
     generate_preview(topic, mode) -> str | None
     publish_post(topic, mode=...) -> PublishResult
+    fetch_image(topic, excluded_urls) -> dict | None  ({"url", "source"})
     """
     port = int(os.getenv("BRIDGE_PORT", "0") or "0")
     if not port:
@@ -56,11 +57,29 @@ async def start_bridge(generate_preview, publish_post) -> web.AppRunner | None:
             return web.json_response({"error": "generation_failed"}, status=502)
         return web.json_response({"text": text})
 
+    async def handle_image(request: web.Request) -> web.Response:
+        if not _check_secret(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        if fetch_image is None:
+            return web.json_response({"error": "not_supported"}, status=501)
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid_json"}, status=400)
+
+        topic = str(body.get("topic") or "").strip() or "наука"
+        excluded = {str(u) for u in (body.get("excludedUrls") or []) if u}
+        result = await fetch_image(topic, excluded)
+        if not result:
+            return web.json_response({"error": "image_not_found"}, status=404)
+        return web.json_response(result)
+
     async def handle_health(_: web.Request) -> web.Response:
         return web.json_response({"ok": True})
 
     app = web.Application()
     app.router.add_post("/generate", handle_generate)
+    app.router.add_post("/image", handle_image)
     app.router.add_get("/health", handle_health)
 
     runner = web.AppRunner(app)

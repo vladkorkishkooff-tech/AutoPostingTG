@@ -13,6 +13,7 @@ from aiogram.types import BufferedInputFile
 
 import db
 from ai_gen import available_modes, enabled_provider_names, generate_post, is_mode_token, normalize_mode
+from ai_image import ai_image_available, generate_ai_image
 from bridge import start_bridge
 from config import AppConfig, load_config
 from scheduler import run_scheduler
@@ -162,11 +163,42 @@ def _modes_text() -> str:
     )
 
 
+async def _resolve_media(
+    topic: str,
+    post_text: str,
+    image_policy: str,
+    excluded_image_urls: set[str],
+) -> tuple[tuple[bytes, str] | None, str | None, str | None]:
+    """Подбирает медиа по политике канала.
+
+    Возвращает (payload, image_url, image_source).
+    Политики: 'off' — без фото; 'ai' — AI-генерация с откатом на стоковые;
+    'auto' (по умолчанию) — стоковые фото.
+    """
+    if image_policy == "off":
+        return None, None, None
+
+    if image_policy == "ai" and ai_image_available(config):
+        ai_payload = await generate_ai_image(topic, post_text, config)
+        if ai_payload:
+            return ai_payload, None, "AI (Gemini)"
+        logger.info("AI image failed, falling back to stock photos")
+
+    image = await get_science_photo(topic, config, excluded_urls=excluded_image_urls)
+    payload = await download_image(image, config) if image else None
+    if payload and image:
+        return payload, image.url, image.source
+    return None, None, None
+
+
 async def publish_post(
     topic: str | None = None,
     *,
     target_chat: str | int | None = None,
     mode: str | None = None,
+    image_policy: str | None = None,
+    schedule_id: int | None = None,
+    scheduled_at=None,
 ) -> PublishResult:
     if bot is None:
         return PublishResult(False, False, _normalize_topic(topic), "BOT_TOKEN is not configured")
@@ -262,8 +294,17 @@ async def publish_post(
         )
     else:
         excluded_image_urls = history.recent_image_urls(topic=normalized_topic, limit=config.recent_image_limit)
-    image = await get_science_photo(normalized_topic, config, excluded_urls=excluded_image_urls)
-    image_payload = await download_image(image, config) if image else None
+
+    # Медиа-политика: явный параметр > настройка канала > 'auto' (фото включены)
+    policy = image_policy
+    if policy is None and use_db and channel_db_id is not None:
+        settings = await db.get_channel_settings(pool, channel_db_id)
+        policy = (settings or {}).get("image_policy")
+    policy = policy or "auto"
+
+    image_payload, image_url, image_source = await _resolve_media(
+        normalized_topic, post_text, policy, excluded_image_urls
+    )
 
     try:
         message_id: int | None = None
@@ -278,8 +319,6 @@ async def publish_post(
                 disable_notification=True,
             )
             message_id = sent.message_id
-            image_source = image.source if image else "unknown"
-            image_url = image.url if image else None
         else:
             sent = await bot.send_message(
                 chat_id=chat_id,
@@ -289,8 +328,6 @@ async def publish_post(
                 disable_notification=True,
             )
             message_id = sent.message_id
-            image_source = None
-            image_url = None
 
         if use_db:
             await db.add_published_post(
@@ -302,6 +339,7 @@ async def publish_post(
                 image_url=image_url,
                 image_source=image_source,
                 telegram_message_id=message_id,
+                schedule_id=schedule_id,
             )
             await log_usage(
                 pool,
@@ -327,6 +365,210 @@ async def publish_post(
     except Exception as exc:
         logger.exception("Telegram send failed")
         return PublishResult(False, bool(image_payload), normalized_topic, str(exc))
+
+
+async def _resolve_slot_topic(pool, channel_id: int, fallback_topic: str) -> str:
+    """Тема слота: ротация из пула тем канала, иначе тема слота/канала."""
+    try:
+        pool_topic = await db.pick_pool_topic(pool, channel_id)
+        if pool_topic:
+            return pool_topic
+    except Exception:
+        logger.exception("Topic pool rotation failed for channel %s", channel_id)
+    return fallback_topic
+
+
+async def prepare_queued_post(item: dict) -> None:
+    """Предгенерация поста в очередь за QUEUE_PREGEN_MINUTES до слота.
+
+    Пост сохраняется со status='queued': его можно посмотреть, одобрить,
+    отредактировать или отклонить в Mini App до публикации.
+    """
+    if not config.database_url:
+        return
+    pool = await db.get_pool(config.database_url)
+
+    if await db.has_queued_post_for_slot(pool, item["schedule_id"], item["scheduled_at"]):
+        return
+
+    channel_id = item["channel_id"]
+    topic = await _resolve_slot_topic(pool, channel_id, _normalize_topic(item["topic"]))
+    mode = normalize_mode(item["mode"], config)
+    policy = item.get("image_policy") or "auto"
+
+    owner_telegram_id = next(iter(config.admin_user_ids), 0)
+    owner_id = await db.ensure_user(pool, owner_telegram_id)
+    avoid_texts = await db.recent_texts(pool, channel_id, topic=topic, mode=mode, limit=config.recent_post_limit)
+    try:
+        user_providers = await fetch_user_providers(pool, owner_id)
+    except Exception:
+        user_providers = []
+
+    post_text = ""
+    for _ in range(max(config.generation_attempts, 1)):
+        candidate = await generate_post(topic, config, mode, avoid_texts, user_providers=user_providers)
+        if candidate is None:
+            break
+        if not await db.has_text(pool, channel_id, candidate):
+            post_text = candidate
+            break
+        avoid_texts.append(candidate)
+
+    if not post_text:
+        logger.warning("Pre-generation: all providers failed for schedule %s", item["schedule_id"])
+        return
+
+    image_url: str | None = None
+    image_source: str | None = None
+    if policy == "ai" and ai_image_available(config):
+        # AI-изображение генерируется в момент публикации (нет URL для предпросмотра)
+        image_source = "ai_pending"
+    elif policy != "off":
+        excluded = await db.recent_image_urls(pool, channel_id, topic=topic, limit=config.recent_image_limit)
+        image = await get_science_photo(topic, config, excluded_urls=excluded)
+        if image:
+            image_url = image.url
+            image_source = image.source
+
+    post_id = await db.insert_queued_post(
+        pool,
+        channel_id,
+        schedule_id=item["schedule_id"],
+        topic=topic,
+        mode=mode,
+        text=post_text,
+        image_url=image_url,
+        image_source=image_source,
+        media_type="photo" if image_url else None,
+        scheduled_at=item["scheduled_at"],
+    )
+    logger.info("Queued post %s prepared for schedule %s (%s)", post_id, item["schedule_id"], topic)
+
+
+async def publish_prepared(post: dict, chat_id: str, image_policy: str) -> PublishResult:
+    """Публикует уже подготовленный пост из очереди (текст и медиа заданы)."""
+    if bot is None:
+        return PublishResult(False, False, post["topic"], "BOT_TOKEN is not configured")
+
+    pool = await db.get_pool(config.database_url)
+    text = post["text"]
+    image_url = post.get("image_url")
+    image_source = post.get("image_source")
+    media_type = post.get("media_type") or ("photo" if image_url else None)
+
+    try:
+        message_id: int | None = None
+        with_image = False
+
+        if media_type == "video" and image_url:
+            sent = await bot.send_video(
+                chat_id=chat_id,
+                video=image_url,
+                caption=_caption(text),
+                parse_mode=ParseMode.HTML,
+                disable_notification=True,
+            )
+            message_id = sent.message_id
+            with_image = True
+        else:
+            payload: tuple[bytes, str] | None = None
+            if image_source == "ai_pending" and ai_image_available(config):
+                payload = await generate_ai_image(post["topic"], text, config)
+                if payload:
+                    image_source = "AI (Gemini)"
+            elif image_url:
+                from image_fetcher import ImageResult
+
+                payload = await download_image(
+                    ImageResult(url=image_url, source=image_source or "custom"), config
+                )
+
+            if payload:
+                image_bytes, filename = payload
+                sent = await bot.send_photo(
+                    chat_id=chat_id,
+                    photo=BufferedInputFile(image_bytes, filename=filename),
+                    caption=_caption(text),
+                    parse_mode=ParseMode.HTML,
+                    show_caption_above_media=False,
+                    disable_notification=True,
+                )
+                message_id = sent.message_id
+                with_image = True
+            elif image_url:
+                # не удалось скачать — пробуем отправить по URL напрямую
+                sent = await bot.send_photo(
+                    chat_id=chat_id,
+                    photo=image_url,
+                    caption=_caption(text),
+                    parse_mode=ParseMode.HTML,
+                    disable_notification=True,
+                )
+                message_id = sent.message_id
+                with_image = True
+            else:
+                sent = await bot.send_message(
+                    chat_id=chat_id,
+                    text=_caption(text),
+                    parse_mode=ParseMode.HTML,
+                    link_preview_options=LinkPreviewOptions(is_disabled=True),
+                    disable_notification=True,
+                )
+                message_id = sent.message_id
+
+        await db.mark_post_published(pool, post["id"], message_id)
+        logger.info("Queued post %s published to %s (media: %s)", post["id"], chat_id, with_image)
+        return PublishResult(True, with_image, post["topic"], "published from queue")
+    except Exception as exc:
+        logger.exception("Queued post %s publish failed", post["id"])
+        try:
+            await db.mark_post_failed(pool, post["id"], str(exc))
+        except Exception:
+            logger.exception("Failed to mark post %s as failed", post["id"])
+        return PublishResult(False, False, post["topic"], str(exc))
+
+
+async def publish_scheduled(item: dict) -> PublishResult:
+    """Публикация слота: пост из очереди либо свежая генерация."""
+    pool = await db.get_pool(config.database_url)
+    queued = await db.get_queued_post_for_slot(pool, item["schedule_id"], item["scheduled_at"])
+    if queued:
+        return await publish_prepared(queued, item["chat_id"], item.get("image_policy") or "auto")
+
+    topic = await _resolve_slot_topic(pool, item["channel_id"], _normalize_topic(item["topic"]))
+    return await publish_post(
+        topic,
+        target_chat=item["chat_id"],
+        mode=item["mode"],
+        image_policy=item.get("image_policy"),
+        schedule_id=item["schedule_id"],
+    )
+
+
+METRICS_INTERVAL_SECONDS = 6 * 3600
+
+
+async def run_metrics_collector() -> None:
+    """Периодически снимает количество подписчиков активных каналов."""
+    if bot is None or not config.database_url:
+        return
+    pool = await db.get_pool(config.database_url)
+    while True:
+        try:
+            channels = await db.active_channels(pool)
+            for channel in channels:
+                chat_id = channel["chat_id"]
+                # личные чаты (preview) пропускаем — метрики только для каналов
+                if not (str(chat_id).startswith("@") or str(chat_id).startswith("-100")):
+                    continue
+                try:
+                    count = await bot.get_chat_member_count(chat_id=chat_id)
+                    await db.record_channel_metric(pool, channel["id"], count)
+                except Exception:
+                    logger.warning("Metric snapshot failed for %s", chat_id, exc_info=True)
+        except Exception:
+            logger.exception("Metrics collector loop error")
+        await asyncio.sleep(METRICS_INTERVAL_SECONDS)
 
 
 @dp.message(Command("start", "help"))
@@ -469,16 +711,13 @@ async def periodic_posting():
 
 
 async def start_db_scheduler():
-    """Запускает планировщик расписаний, если настроена БД."""
+    """Запускает планировщик расписаний и сборщик метрик, если настроена БД."""
     if not config.database_url:
         return
 
     pool = await db.get_pool(config.database_url)
-
-    async def _publish(topic: str, mode: str, target_chat: str):
-        return await publish_post(topic, target_chat=target_chat, mode=mode)
-
-    asyncio.create_task(run_scheduler(pool, _publish))
+    asyncio.create_task(run_scheduler(pool, publish_scheduled, prepare_queued_post))
+    asyncio.create_task(run_metrics_collector())
 
 
 async def run_bot():
@@ -493,7 +732,13 @@ async def run_bot():
             normalized_mode = normalize_mode(mode, config)
             return await generate_post(normalized_topic, config, normalized_mode)
 
-        bridge_runner = await start_bridge(_generate_preview, publish_post)
+        async def _fetch_image(topic: str, excluded_urls: set[str]) -> dict | None:
+            image = await get_science_photo(topic, config, excluded_urls=excluded_urls)
+            if not image:
+                return None
+            return {"url": image.url, "source": image.source}
+
+        bridge_runner = await start_bridge(_generate_preview, publish_post, _fetch_image)
         asyncio.create_task(periodic_posting())
         await start_db_scheduler()
         await bot.delete_webhook(drop_pending_updates=True)
