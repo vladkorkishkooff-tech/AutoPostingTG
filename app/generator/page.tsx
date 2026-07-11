@@ -1,9 +1,12 @@
 'use client'
 
-import { useState } from 'react'
-import { Eye, Send, Pencil, Check, ImageIcon, Sparkles, X, RefreshCw } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import useSWR from 'swr'
+import { Eye, Send, Pencil, Check, ImageIcon, Sparkles, X, RefreshCw, History } from 'lucide-react'
 import { PageHeader } from '@/components/ui'
-import { apiFetch, haptic } from '@/lib/client'
+import { apiFetch, haptic, swrFetcher } from '@/lib/client'
+
+type HistoryItem = { id: number; topic: string; mode: string | null; text: string; created_at: string }
 
 const MODES = [
   { id: 'normal', label: 'Обычный' },
@@ -34,6 +37,17 @@ export default function GeneratorPage() {
   const [photoBusy, setPhotoBusy] = useState<'stock' | 'ai' | null>(null)
   const [photoHint, setPhotoHint] = useState<string | null>(null)
   const [seenUrls, setSeenUrls] = useState<string[]>([])
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const { data: historyData } = useSWR<{ history: HistoryItem[] }>(historyOpen ? '/api/history' : null, swrFetcher)
+
+  // Тема и режим из шаблона (переход из «Ещё» → «Шаблоны постов»)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const qTopic = params.get('topic')
+    const qMode = params.get('mode')
+    if (qTopic) setTopic(qTopic.slice(0, 120))
+    if (qMode && MODES.some((m) => m.id === qMode)) setMode(qMode)
+  }, [])
 
   async function run(action: 'preview' | 'publish') {
     haptic('medium')
@@ -67,6 +81,14 @@ export default function GeneratorPage() {
       if (action === 'preview') {
         setPreview(data.text ?? null)
         setEditing(false)
+        // Сохраняем в историю генераций (fire-and-forget)
+        if (data.text) {
+          apiFetch('/api/history', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ topic, mode, text: data.text }),
+          }).catch(() => {})
+        }
       } else {
         setMessage('Пост опубликован в канал.')
         setPreview(null)
@@ -151,7 +173,20 @@ export default function GeneratorPage() {
         <label className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <span className="eyebrow">Тема</span>
-            <span className="num text-[11px] text-muted-foreground">{topic.length}/120</span>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  haptic('light')
+                  setHistoryOpen(true)
+                }}
+                className="pressable flex items-center gap-1 text-[12px] font-medium text-muted-foreground hover:text-foreground"
+              >
+                <History size={13} aria-hidden="true" />
+                История
+              </button>
+              <span className="num text-[11px] text-muted-foreground">{topic.length}/120</span>
+            </div>
           </div>
           <input
             value={topic}
@@ -297,7 +332,7 @@ export default function GeneratorPage() {
             {photo ? (
               <span className="text-[11px] text-muted-foreground">
                 {preview
-                  ? `Источник: ${photo.source} — фото показано в предпросмотре выше и будет прикреплено к посту`
+                  ? `Источник: ${photo.source} — фото показан�� в предпросмотре выше и будет прикреплено к посту`
                   : `Источник: ${photo.source} — нажмите «Предпросмотр»: фото прикрепится к сгенерированному тексту`}
               </span>
             ) : null}
@@ -382,6 +417,73 @@ export default function GeneratorPage() {
           </button>
         </div>
       </div>
+
+      {historyOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex flex-col justify-end bg-black/60"
+          role="dialog"
+          aria-modal="true"
+          aria-label="История генераций"
+          onClick={() => setHistoryOpen(false)}
+        >
+          <div
+            className="max-h-[75vh] overflow-y-auto rounded-t-2xl border-t border-border bg-background p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="eyebrow">История генераций</h2>
+              <button
+                type="button"
+                onClick={() => setHistoryOpen(false)}
+                aria-label="Закрыть"
+                className="pressable text-muted-foreground hover:text-foreground"
+              >
+                <X size={18} aria-hidden="true" />
+              </button>
+            </div>
+
+            {!historyData ? (
+              <p className="py-8 text-center text-[13px] text-muted-foreground">Загрузка…</p>
+            ) : historyData.history.length === 0 ? (
+              <p className="py-8 text-center text-[13px] text-muted-foreground">
+                Пока пусто — сгенерируйте первый пост, и он появится здесь
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-2.5">
+                {historyData.history.map((h) => (
+                  <li key={h.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        haptic('light')
+                        setTopic(h.topic)
+                        if (h.mode) setMode(h.mode)
+                        setPreview(h.text)
+                        setEditing(false)
+                        setHistoryOpen(false)
+                      }}
+                      className="glass pressable flex w-full flex-col gap-1.5 p-3.5 text-left"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-[12px] font-medium text-primary">{h.topic}</span>
+                        <time className="num shrink-0 text-[11px] text-muted-foreground" dateTime={h.created_at}>
+                          {new Date(h.created_at).toLocaleString('ru-RU', {
+                            day: 'numeric',
+                            month: 'short',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </time>
+                      </div>
+                      <p className="line-clamp-2 text-[12.5px] leading-relaxed text-muted-foreground">{h.text}</p>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

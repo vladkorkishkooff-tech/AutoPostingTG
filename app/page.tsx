@@ -26,33 +26,32 @@ type Stats = {
   subscribers: { current: number | null; delta24h: number | null; series: number[] } | null
 }
 
-/** «через 2 ч 14 мин» — живой отсчёт до следующего поста */
-function useCountdown(target: string | null): string | null {
-  const [label, setLabel] = useState<string | null>(null)
+/** ЧЧ:ММ:СС до следующего поста — живой отсчёт с секундами */
+function useCountdown(target: string | null): { h: string; m: string; s: string } | null {
+  const [parts, setParts] = useState<{ h: string; m: string; s: string } | null>(null)
   useEffect(() => {
     if (!target) {
-      setLabel(null)
+      setParts(null)
       return
     }
     function tick() {
       const ms = new Date(target as string).getTime() - Date.now()
       if (ms <= 0) {
-        setLabel('вот-вот')
+        setParts({ h: '00', m: '00', s: '00' })
         return
       }
-      const totalMin = Math.round(ms / 60000)
-      const d = Math.floor(totalMin / 1440)
-      const h = Math.floor((totalMin % 1440) / 60)
-      const m = totalMin % 60
-      if (d > 0) setLabel(`через ${d} д ${h} ч`)
-      else if (h > 0) setLabel(`через ${h} ч ${m} мин`)
-      else setLabel(`через ${m} мин`)
+      const total = Math.floor(ms / 1000)
+      const h = Math.floor(total / 3600)
+      const m = Math.floor((total % 3600) / 60)
+      const s = total % 60
+      const pad = (n: number) => String(n).padStart(2, '0')
+      setParts({ h: pad(h), m: pad(m), s: pad(s) })
     }
     tick()
-    const id = setInterval(tick, 30000)
+    const id = setInterval(tick, 1000)
     return () => clearInterval(id)
   }, [target])
-  return label
+  return parts
 }
 
 /** Мини-график динамики подписчиков (простая ломаная) */
@@ -220,11 +219,18 @@ function ActiveHero({
       </div>
 
       {countdown ? (
-        <div className="flex items-center gap-2.5 rounded-lg border border-primary/25 bg-primary/[0.07] px-3.5 py-2.5">
-          <Clock size={15} className="shrink-0 text-primary" aria-hidden="true" />
-          <span className="text-[13px] text-foreground">
-            Следующий пост <strong className="font-semibold">{countdown}</strong>
-          </span>
+        <div className="flex flex-col gap-1.5 rounded-lg border border-primary/25 bg-primary/[0.07] px-4 py-3">
+          <span className="text-[11px] text-muted-foreground">Следующий пост через</span>
+          <div className="flex items-baseline gap-1" role="timer" aria-label="Отсчёт до следующего поста">
+            <span className="num text-[30px] font-semibold leading-none text-foreground">{countdown.h}</span>
+            <span className="text-[20px] leading-none text-muted-foreground">:</span>
+            <span className="num text-[30px] font-semibold leading-none text-foreground">{countdown.m}</span>
+            <span className="text-[20px] leading-none text-muted-foreground">:</span>
+            <span className="num text-[30px] font-semibold leading-none text-primary">{countdown.s}</span>
+            <span className="ml-2 flex gap-3 text-[9px] uppercase tracking-wider text-muted-foreground">
+              <span>чч мм сс</span>
+            </span>
+          </div>
         </div>
       ) : (
         <div className="flex items-center gap-2.5 rounded-lg border border-border bg-white/[0.03] px-3.5 py-2.5">

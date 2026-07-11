@@ -1,5 +1,16 @@
 import Link from 'next/link'
-import { Layers, Settings, ChevronRight, ImageIcon, Dna, KeyRound, BarChart3, Radio, History } from 'lucide-react'
+import {
+  Layers,
+  Settings,
+  ChevronRight,
+  ImageIcon,
+  Dna,
+  KeyRound,
+  BarChart3,
+  Radio,
+  History,
+  BookmarkPlus,
+} from 'lucide-react'
 import { PageHeader } from '@/components/ui'
 
 const groups: {
@@ -20,6 +31,12 @@ const groups: {
         icon: History,
         title: 'История публикаций',
         description: 'Все опубликованные посты канала',
+      },
+      {
+        href: '/more/templates',
+        icon: BookmarkPlus,
+        title: 'Шаблоны постов',
+        description: 'Сохранённые тема + режим — пост в два тапа',
       },
       {
         href: '/more/media',
