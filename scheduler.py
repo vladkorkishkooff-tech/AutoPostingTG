@@ -9,7 +9,14 @@
 
 Тема слота: schedules.topic перекрывает channels.topic. Если у канала
 есть активный пул тем (topic_pool), тема берётся из него по ротации.
-Защита от двойного срабатывания — проверка последней публикации канала.
+
+Защита от двойной публикации — два уровня:
+1. In-memory ключи (быстрый путь в рамках одного процесса).
+2. Атомарный claim слота в БД (slot_runs) — переживает рестарты и
+   защищает от случайного запуска двух экземпляров бота.
+
+Отказоустойчивость: публикация ретраится до PUBLISH_RETRIES раз
+с экспоненциальной паузой при временных сбоях Telegram/сети.
 """
 
 from __future__ import annotations
@@ -20,10 +27,14 @@ import os
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import db
+
 logger = logging.getLogger(__name__)
 
 CHECK_INTERVAL_SECONDS = 30
 PREGEN_MINUTES = int(os.getenv("QUEUE_PREGEN_MINUTES", "60") or "60")
+PUBLISH_RETRIES = int(os.getenv("PUBLISH_RETRIES", "3") or "3")
+RETRY_BASE_SECONDS = 20
 
 
 def _schedule_rows_query() -> str:
@@ -106,6 +117,34 @@ async def _already_posted_this_minute(pool, channel_id: int) -> bool:
     return row is not None
 
 
+async def _publish_with_retries(publish_fn, item: dict) -> object | None:
+    """Публикует слот с ретраями при временных сбоях.
+
+    Ретраим только явные исключения (сеть, таймауты). Если publish_fn
+    вернул результат с ok=False — это осмысленный отказ (например, все
+    AI-провайдеры исчерпаны), его не ретраим на этом уровне: внутри
+    publish_fn уже есть ротация провайдеров.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(1, PUBLISH_RETRIES + 1):
+        try:
+            return await publish_fn(item)
+        except Exception as exc:  # сетевые сбои, таймауты Telegram
+            last_exc = exc
+            if attempt < PUBLISH_RETRIES:
+                delay = RETRY_BASE_SECONDS * (2 ** (attempt - 1))  # 20с, 40с
+                logger.warning(
+                    "Publish attempt %s/%s failed for schedule %s, retrying in %ss: %s",
+                    attempt, PUBLISH_RETRIES, item["schedule_id"], delay, exc,
+                )
+                await asyncio.sleep(delay)
+    logger.error(
+        "Publish failed after %s attempts for schedule %s: %s",
+        PUBLISH_RETRIES, item["schedule_id"], last_exc,
+    )
+    return None
+
+
 async def run_scheduler(pool, publish_fn, prepare_fn=None) -> None:
     """Бесконечный цикл планировщика.
 
@@ -121,6 +160,7 @@ async def run_scheduler(pool, publish_fn, prepare_fn=None) -> None:
     )
     last_fired: dict[int, str] = {}
     last_prepared: dict[int, str] = {}
+    loop_counter = 0
 
     while True:
         try:
@@ -142,31 +182,55 @@ async def run_scheduler(pool, publish_fn, prepare_fn=None) -> None:
 
             # 2. Публикация слотов, время которых наступило
             for item in _due_now(rows):
-                minute_key = datetime.utcnow().strftime("%Y-%m-%dT%H:%M")
-                if last_fired.get(item["schedule_id"]) == minute_key:
+                slot_key = item["scheduled_at"].strftime("%Y-%m-%dT%H:%M")
+                if last_fired.get(item["schedule_id"]) == slot_key:
                     continue
+                last_fired[item["schedule_id"]] = slot_key
+
                 if await _already_posted_this_minute(pool, item["channel_id"]):
-                    last_fired[item["schedule_id"]] = minute_key
                     continue
 
-                last_fired[item["schedule_id"]] = minute_key
+                # Атомарный claim в БД: переживает рестарты процесса
+                # и защищает от двух параллельных экземпляров бота
+                try:
+                    claimed = await db.claim_slot(pool, item["schedule_id"], slot_key)
+                except Exception:
+                    logger.exception("Slot claim failed, skipping to be safe")
+                    continue
+                if not claimed:
+                    logger.info(
+                        "Slot %s for schedule %s already claimed, skipping",
+                        slot_key, item["schedule_id"],
+                    )
+                    continue
+
                 logger.info(
                     "Schedule %s fired: chat=%s topic=%s",
                     item["schedule_id"], item["chat_id"], item["topic"],
                 )
+                result = await _publish_with_retries(publish_fn, item)
+                ok = bool(getattr(result, "ok", False)) if result is not None else False
                 try:
-                    result = await publish_fn(item)
-                    logger.info("Scheduled publish result: %s", result)
-                except Exception:
-                    logger.exception(
-                        "Scheduled publish failed for schedule %s", item["schedule_id"]
+                    await db.mark_slot_status(
+                        pool, item["schedule_id"], slot_key, "done" if ok else "failed"
                     )
+                except Exception:
+                    logger.warning("mark_slot_status failed", exc_info=True)
+                logger.info("Scheduled publish result: %s", result)
 
             # чистим старые ключи, чтобы словари не росли бесконечно
             if len(last_fired) > 1000:
                 last_fired.clear()
             if len(last_prepared) > 1000:
                 last_prepared.clear()
+
+            # раз в ~сутки чистим старые slot_runs
+            loop_counter += 1
+            if loop_counter % 2880 == 0:  # 2880 * 30с = 24ч
+                try:
+                    await db.cleanup_slot_runs(pool)
+                except Exception:
+                    logger.warning("slot_runs cleanup failed", exc_info=True)
         except Exception:
             logger.exception("Scheduler loop error")
 

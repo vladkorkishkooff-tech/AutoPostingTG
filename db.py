@@ -72,6 +72,42 @@ async def ensure_channel(
     return row["id"]
 
 
+async def claim_slot(pool: asyncpg.Pool, schedule_id: int, slot_key: str) -> bool:
+    """Атомарно «занимает» слот расписания (идемпотентность публикаций).
+
+    Возвращает True, если слот занят именно этим процессом. False — слот
+    уже обработан (другим процессом или до рестарта). Защищает от двойной
+    публикации при рестарте бота или случайном запуске двух экземпляров.
+    """
+    result = await pool.execute(
+        """
+        INSERT INTO slot_runs (schedule_id, slot_key)
+        VALUES ($1, $2)
+        ON CONFLICT (schedule_id, slot_key) DO NOTHING
+        """,
+        schedule_id,
+        slot_key,
+    )
+    return result.endswith("1")
+
+
+async def mark_slot_status(pool: asyncpg.Pool, schedule_id: int, slot_key: str, status: str) -> None:
+    await pool.execute(
+        "UPDATE slot_runs SET status = $3 WHERE schedule_id = $1 AND slot_key = $2",
+        schedule_id,
+        slot_key,
+        status,
+    )
+
+
+async def cleanup_slot_runs(pool: asyncpg.Pool, keep_days: int = 14) -> None:
+    """Удаляет старые записи slot_runs, чтобы таблица не росла бесконечно."""
+    await pool.execute(
+        "DELETE FROM slot_runs WHERE created_at < now() - ($1 || ' days')::interval",
+        str(keep_days),
+    )
+
+
 # ---------- Настройка через бота (команды /setup и др.) ----------
 
 

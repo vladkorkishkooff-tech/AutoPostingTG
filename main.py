@@ -920,14 +920,63 @@ async def periodic_posting():
         await publish_post(config.default_topic, mode=config.default_mode)
 
 
+WATCHDOG_INTERVAL_SECONDS = 30 * 60  # проверка каждые 30 минут
+WATCHDOG_GRACE_MINUTES = 30  # сколько ждать после слота, прежде чем бить тревогу
+
+
+async def run_watchdog() -> None:
+    """Сторож: если слот расписания прошёл, а пост не вышел — алерт владельцу.
+
+    Каждые 30 минут ищет слоты за последние сутки, помеченные в slot_runs
+    как failed, либо прошедшие слоты без публикации в канале в течение
+    30 минут после слота. Каждый проблемный слот алертится один раз.
+    """
+    if bot is None or not config.database_url:
+        return
+    pool = await db.get_pool(config.database_url)
+    alerted: set[str] = set()
+
+    while True:
+        await asyncio.sleep(WATCHDOG_INTERVAL_SECONDS)
+        try:
+            rows = await pool.fetch(
+                """
+                SELECT sr.schedule_id, sr.slot_key, sr.status, c.chat_id
+                FROM slot_runs sr
+                JOIN schedules s ON s.id = sr.schedule_id
+                JOIN channels c ON c.id = s.channel_id
+                WHERE sr.created_at > now() - interval '24 hours'
+                  AND sr.created_at < now() - ($1 || ' minutes')::interval
+                  AND sr.status != 'done'
+                """,
+                str(WATCHDOG_GRACE_MINUTES),
+            )
+            for row in rows:
+                key = f"{row['schedule_id']}:{row['slot_key']}"
+                if key in alerted:
+                    continue
+                alerted.add(key)
+                await notify_owner(
+                    f"🚨 Watchdog: слот {html.escape(row['slot_key'])} "
+                    f"для канала {html.escape(str(row['chat_id']))} не завершился публикацией "
+                    f"(статус: {html.escape(row['status'])}).\n"
+                    f"Проверьте логи бота и ключи провайдеров."
+                )
+            if len(alerted) > 500:
+                alerted.clear()
+        except Exception:
+            logger.exception("Watchdog loop error")
+
+
 async def start_db_scheduler():
-    """Запускает планировщик расписаний и сборщик метрик, если настроена БД."""
+    """Запускает планировщик расписаний, сборщик метрик и watchdog, если настроена БД."""
     if not config.database_url:
         return
 
     pool = await db.get_pool(config.database_url)
     asyncio.create_task(run_scheduler(pool, publish_scheduled, prepare_queued_post))
     asyncio.create_task(run_metrics_collector())
+    asyncio.create_task(run_watchdog())
 
 
 async def run_bot():

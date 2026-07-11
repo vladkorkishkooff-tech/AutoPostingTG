@@ -1,0 +1,42 @@
+# systemd-юнит для Python-бота автопостинга (альтернатива Docker).
+#
+# Установка:
+#   1. Скопируйте проект в /opt/autoposting (или поправьте пути ниже)
+#   2. python3 -m venv /opt/autoposting/venv && /opt/autoposting/venv/bin/pip install -r requirements.txt
+#   3. Заполните /opt/autoposting/.env
+#   4. sudo cp deploy/autoposting-bot.service /etc/systemd/system/
+#   5. sudo systemctl daemon-reload && sudo systemctl enable --now autoposting-bot
+#
+# Логи:   journalctl -u autoposting-bot -f
+# Статус: systemctl status autoposting-bot
+
+[Unit]
+Description=Telegram AutoPosting Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/autoposting
+ExecStart=/opt/autoposting/venv/bin/python main.py
+EnvironmentFile=/opt/autoposting/.env
+
+# Автоперезапуск при любом падении, с паузой 10 секунд
+Restart=always
+RestartSec=10
+# Не перезапускать бесконечно при мгновенных падениях (например, кривой .env):
+# максимум 5 рестартов за 2 минуты, затем systemd остановится
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+# Безопасность: непривилегированный пользователь и урезанные права
+User=autoposting
+Group=autoposting
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/autoposting
+
+[Install]
+WantedBy=multi-user.target
