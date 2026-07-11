@@ -2,14 +2,14 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Home, PenSquare, CalendarClock, History, MoreHorizontal } from 'lucide-react'
+import { Home, PenSquare, CalendarClock, Inbox, MoreHorizontal } from 'lucide-react'
 import { haptic } from '@/lib/client'
 
 const items = [
   { href: '/', label: 'Дашборд', icon: Home },
   { href: '/generator', label: 'Генератор', icon: PenSquare },
+  { href: '/queue', label: 'Очередь', icon: Inbox },
   { href: '/schedule', label: 'Расписание', icon: CalendarClock },
-  { href: '/history', label: 'История', icon: History },
   { href: '/more', label: 'Ещё', icon: MoreHorizontal },
 ]
 

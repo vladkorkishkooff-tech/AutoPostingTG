@@ -24,8 +24,72 @@ type UsageData = {
   recentErrors: { provider: string | null; model: string | null; error: string | null; created_at: string }[]
 }
 
+type AnalyticsData = {
+  memberSeries: { channel_id: number; channel_title: string | null; day: string; members: number }[]
+  topicBreakdown: { topic: string; posts: number }[]
+}
+
+function MembersCard({ series }: { series: AnalyticsData['memberSeries'] }) {
+  // Группируем по каналам: берём первую и последнюю точку для дельты
+  const byChannel = new Map<number, { title: string; points: { day: string; members: number }[] }>()
+  for (const row of series) {
+    const entry = byChannel.get(row.channel_id) ?? {
+      title: row.channel_title || `Канал ${row.channel_id}`,
+      points: [],
+    }
+    entry.points.push({ day: row.day, members: Number(row.members) })
+    byChannel.set(row.channel_id, entry)
+  }
+  if (byChannel.size === 0) return null
+
+  return (
+    <Card>
+      <h2 className="mb-3 text-sm font-semibold">Подписчики (30 дней)</h2>
+      <ul className="flex flex-col gap-3">
+        {[...byChannel.entries()].map(([id, { title, points }]) => {
+          const first = points[0]?.members ?? 0
+          const last = points[points.length - 1]?.members ?? 0
+          const delta = last - first
+          const max = Math.max(1, ...points.map((p) => p.members))
+          const min = Math.min(...points.map((p) => p.members))
+          const range = Math.max(1, max - min)
+          return (
+            <li key={id} className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate text-[12px] font-medium text-foreground">{title}</span>
+                <span className="num shrink-0 text-[12px] text-foreground">
+                  {last.toLocaleString('ru-RU')}
+                  {delta !== 0 ? (
+                    <span className={delta > 0 ? 'text-primary' : 'text-destructive'}>
+                      {' '}
+                      {delta > 0 ? '+' : ''}
+                      {delta}
+                    </span>
+                  ) : null}
+                </span>
+              </div>
+              {points.length > 1 ? (
+                <div className="flex h-8 items-end gap-px" role="img" aria-label={`Динамика подписчиков: ${title}`}>
+                  {points.map((p, i) => (
+                    <div
+                      key={i}
+                      className="flex-1 rounded-t-sm bg-primary/50"
+                      style={{ height: `${Math.max(12, ((p.members - min) / range) * 100)}%` }}
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </li>
+          )
+        })}
+      </ul>
+    </Card>
+  )
+}
+
 export default function StatsPage() {
   const { data, isLoading } = useSWR<UsageData>('/api/usage', fetcher, { refreshInterval: 30000 })
+  const { data: analytics } = useSWR<AnalyticsData>('/api/analytics', fetcher, { refreshInterval: 60000 })
 
   const totals = data?.totals
   const successRate =
@@ -69,6 +133,31 @@ export default function StatsPage() {
           </p>
         )}
       </Card>
+
+      {analytics?.memberSeries?.length ? <MembersCard series={analytics.memberSeries} /> : null}
+
+      {analytics?.topicBreakdown?.length ? (
+        <Card>
+          <h2 className="mb-3 text-sm font-semibold">Популярные темы</h2>
+          <ul className="flex flex-col gap-2">
+            {analytics.topicBreakdown.map((t) => {
+              const maxPosts = Math.max(1, ...analytics.topicBreakdown.map((x) => Number(x.posts)))
+              return (
+                <li key={t.topic} className="flex items-center gap-2.5">
+                  <span className="w-24 shrink-0 truncate text-[12px] text-foreground">{t.topic}</span>
+                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
+                    <div
+                      className="h-full rounded-full bg-primary/60"
+                      style={{ width: `${(Number(t.posts) / maxPosts) * 100}%` }}
+                    />
+                  </div>
+                  <span className="num w-6 shrink-0 text-right text-[11px] text-muted-foreground">{t.posts}</span>
+                </li>
+              )
+            })}
+          </ul>
+        </Card>
+      ) : null}
 
       <Card>
         <h2 className="mb-3 text-sm font-semibold">По провайдерам</h2>

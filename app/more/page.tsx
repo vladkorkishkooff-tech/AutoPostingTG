@@ -1,8 +1,20 @@
 import Link from 'next/link'
-import { Layers, Settings, ChevronRight, ImageIcon, Dna, KeyRound, BarChart3 } from 'lucide-react'
+import { Layers, Settings, ChevronRight, ImageIcon, Dna, KeyRound, BarChart3, Radio, History } from 'lucide-react'
 import { Card, PageHeader } from '@/components/ui'
 
 const sections = [
+  {
+    href: '/more/channels',
+    icon: Radio,
+    title: 'Каналы',
+    description: 'Несколько каналов: темы, медиа, пул тем',
+  },
+  {
+    href: '/history',
+    icon: History,
+    title: 'История публикаций',
+    description: 'Все опубликованные посты канала',
+  },
   {
     href: '/more/keys',
     icon: KeyRound,

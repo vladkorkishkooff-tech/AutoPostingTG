@@ -27,6 +27,22 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         WHERE s.id = ${scheduleId} AND s.channel_id = c.id AND c.user_id = ${user.userId}
       `
     }
+    if ('topic' in body) {
+      const topic = typeof body.topic === 'string' && body.topic.trim() ? body.topic.trim().slice(0, 100) : null
+      await sql`
+        UPDATE schedules s SET topic = ${topic}
+        FROM channels c
+        WHERE s.id = ${scheduleId} AND s.channel_id = c.id AND c.user_id = ${user.userId}
+      `
+    }
+    if ('mode' in body) {
+      const mode = typeof body.mode === 'string' && body.mode.trim() ? body.mode.trim().slice(0, 30) : null
+      await sql`
+        UPDATE schedules s SET mode = ${mode}
+        FROM channels c
+        WHERE s.id = ${scheduleId} AND s.channel_id = c.id AND c.user_id = ${user.userId}
+      `
+    }
     return NextResponse.json({ ok: true })
   } catch (error) {
     console.error('[v0] schedules PATCH error:', error)
