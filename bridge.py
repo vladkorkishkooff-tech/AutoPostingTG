@@ -18,12 +18,13 @@ def _check_secret(request: web.Request) -> bool:
     return bool(secret) and request.headers.get("X-Bridge-Secret") == secret
 
 
-async def start_bridge(generate_preview, publish_post, fetch_image=None) -> web.AppRunner | None:
+async def start_bridge(generate_preview, publish_post, fetch_image=None, publish_custom=None) -> web.AppRunner | None:
     """Start the bridge server.
 
     generate_preview(topic, mode) -> str | None
     publish_post(topic, mode=...) -> PublishResult
     fetch_image(topic, excluded_urls) -> dict | None  ({"url", "source"})
+    publish_custom(topic, text, mode=...) -> PublishResult  (публикация отредактированного текста)
     """
     port = int(os.getenv("BRIDGE_PORT", "0") or "0")
     if not port:
@@ -44,6 +45,18 @@ async def start_bridge(generate_preview, publish_post, fetch_image=None) -> web.
         topic = str(body.get("topic") or "").strip()
         mode = str(body.get("mode") or "normal").strip()
         action = str(body.get("action") or "preview").strip()
+
+        if action == "publish_custom":
+            if publish_custom is None:
+                return web.json_response({"error": "not_supported"}, status=501)
+            text = str(body.get("text") or "").strip()
+            if not text:
+                return web.json_response({"error": "empty_text"}, status=400)
+            result = await publish_custom(topic or None, text, mode=mode)
+            return web.json_response(
+                {"ok": result.ok, "withImage": result.with_image, "details": result.details},
+                status=200 if result.ok else 502,
+            )
 
         if action == "publish":
             result = await publish_post(topic or None, mode=mode)

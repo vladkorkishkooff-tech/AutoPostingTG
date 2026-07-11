@@ -24,7 +24,13 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         topic: String(body.topic ?? '').slice(0, 120),
         mode: String(body.mode ?? 'normal'),
-        action: body.action === 'publish' ? 'publish' : 'preview',
+        action:
+          body.action === 'publish_custom'
+            ? 'publish_custom'
+            : body.action === 'publish'
+              ? 'publish'
+              : 'preview',
+        ...(body.action === 'publish_custom' ? { text: String(body.text ?? '').slice(0, 2000) } : {}),
       }),
       signal: AbortSignal.timeout(60_000),
     })

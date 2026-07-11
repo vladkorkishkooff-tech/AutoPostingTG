@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Eye, Send, ShieldCheck } from 'lucide-react'
+import { Eye, Send, Pencil, Check } from 'lucide-react'
 import { PageHeader } from '@/components/ui'
 import { apiFetch, haptic } from '@/lib/client'
 
@@ -25,6 +25,8 @@ export default function GeneratorPage() {
   const [topic, setTopic] = useState('Необычные языковые факты')
   const [mode, setMode] = useState('wow')
   const [preview, setPreview] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState<'preview' | 'publish' | null>(null)
   const [message, setMessage] = useState<string | null>(null)
 
@@ -33,10 +35,14 @@ export default function GeneratorPage() {
     setBusy(action)
     setMessage(null)
     try {
+      // Если текст предпросмотра есть — публикуем именно его (в т.ч. отредактированный)
+      const isCustom = action === 'publish' && preview !== null
       const res = await apiFetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic, mode, action }),
+        body: JSON.stringify(
+          isCustom ? { topic, mode, action: 'publish_custom', text: preview } : { topic, mode, action },
+        ),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -47,8 +53,11 @@ export default function GeneratorPage() {
       haptic('success')
       if (action === 'preview') {
         setPreview(data.text ?? null)
+        setEditing(false)
       } else {
         setMessage('Пост опубликован в канал.')
+        setPreview(null)
+        setEditing(false)
       }
     } catch {
       haptic('error')
@@ -56,6 +65,19 @@ export default function GeneratorPage() {
     } finally {
       setBusy(null)
     }
+  }
+
+  function startEditing() {
+    haptic('light')
+    setDraft(preview ?? '')
+    setEditing(true)
+  }
+
+  function applyEdit() {
+    haptic('light')
+    const next = draft.trim()
+    if (next) setPreview(next)
+    setEditing(false)
   }
 
   const score = preview ? qualityScore(preview) : 0
@@ -104,15 +126,62 @@ export default function GeneratorPage() {
         </fieldset>
 
         <section aria-label="Предпросмотр поста">
-          <h2 className="mb-2 text-[13px] font-medium text-foreground">Предпросмотр поста</h2>
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-[13px] font-medium text-foreground">Предпросмотр поста</h2>
+            {preview && !editing ? (
+              <button
+                type="button"
+                onClick={startEditing}
+                className="pressable flex items-center gap-1.5 text-[12px] font-medium text-primary"
+              >
+                <Pencil size={13} aria-hidden="true" />
+                Редактировать
+              </button>
+            ) : null}
+          </div>
           <div className="glass flex gap-3 p-4">
             <div className="flex min-w-0 flex-1 flex-col justify-between gap-2">
-              {preview ? (
+              {editing ? (
                 <>
-                  <p className="text-[13px] leading-relaxed text-foreground">{preview}</p>
+                  <textarea
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    rows={6}
+                    maxLength={2000}
+                    aria-label="Текст поста"
+                    className="w-full resize-y rounded-lg border border-primary/40 bg-transparent p-3 text-[13px] leading-relaxed text-foreground outline-none focus:border-primary/70"
+                  />
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-muted-foreground">{draft.length}/2000</span>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          haptic('light')
+                          setEditing(false)
+                        }}
+                        className="pressable rounded-lg px-3 py-1.5 text-[12px] text-muted-foreground"
+                      >
+                        Отмена
+                      </button>
+                      <button
+                        type="button"
+                        onClick={applyEdit}
+                        disabled={!draft.trim()}
+                        className="btn-green pressable flex items-center gap-1.5 px-3 py-1.5 text-[12px] disabled:opacity-50"
+                      >
+                        <Check size={13} aria-hidden="true" />
+                        Готово
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : preview ? (
+                <>
+                  <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground">{preview}</p>
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-primary">{topic || 'Тема'}</span>
-                    <ShieldCheck size={15} className="text-muted-foreground" aria-hidden="true" />
+                    <span className="text-[11px] text-muted-foreground">будет опубликован этот текст</span>
                   </div>
                 </>
               ) : (
@@ -155,12 +224,12 @@ export default function GeneratorPage() {
           </button>
           <button
             type="button"
-            disabled={busy !== null}
+            disabled={busy !== null || editing}
             onClick={() => run('publish')}
             className="btn-blue pressable flex items-center justify-center gap-2 px-4 py-3 text-sm disabled:opacity-50"
           >
             <Send size={16} aria-hidden="true" />
-            {busy === 'publish' ? 'Публикация…' : 'Опубликовать'}
+            {busy === 'publish' ? 'Публикация…' : preview ? 'Опубликовать этот текст' : 'Опубликовать'}
           </button>
         </div>
       </div>

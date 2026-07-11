@@ -292,6 +292,21 @@ async def last_metric_at(pool: asyncpg.Pool, channel_id: int) -> datetime | None
     return row["ts"] if row else None
 
 
+async def last_metric_snapshot(pool: asyncpg.Pool, channel_id: int) -> dict | None:
+    """Последняя записанная метрика канала: значение и время."""
+    row = await pool.fetchrow(
+        """
+        SELECT member_count, captured_at
+        FROM channel_metrics
+        WHERE channel_id = $1
+        ORDER BY captured_at DESC
+        LIMIT 1
+        """,
+        channel_id,
+    )
+    return dict(row) if row else None
+
+
 async def add_published_post(
     pool: asyncpg.Pool,
     channel_id: int,

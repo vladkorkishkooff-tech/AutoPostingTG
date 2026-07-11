@@ -367,6 +367,91 @@ async def publish_post(
         return PublishResult(False, bool(image_payload), normalized_topic, str(exc))
 
 
+async def publish_custom_text(
+    topic: str | None,
+    text: str,
+    *,
+    mode: str | None = None,
+    target_chat: str | int | None = None,
+) -> PublishResult:
+    """Публикует отредактированный пользователем текст без генерации.
+
+    Медиа подбирается по политике канала — как при обычной публикации.
+    """
+    if bot is None:
+        return PublishResult(False, False, _normalize_topic(topic), "BOT_TOKEN is not configured")
+    if not text.strip():
+        return PublishResult(False, False, _normalize_topic(topic), "empty text")
+
+    normalized_topic = _normalize_topic(topic)
+    normalized_mode = normalize_mode(mode, config)
+    chat_id = target_chat or config.channel_id
+
+    use_db = bool(config.database_url)
+    pool = None
+    channel_db_id: int | None = None
+    excluded_image_urls: set[str] = set()
+    policy = "auto"
+
+    if use_db:
+        pool = await db.get_pool(config.database_url)
+        owner_telegram_id = next(iter(config.admin_user_ids), 0)
+        owner_id = await db.ensure_user(pool, owner_telegram_id)
+        channel_db_id = await db.ensure_channel(
+            pool, owner_id, str(chat_id), topic=normalized_topic, mode=normalized_mode
+        )
+        excluded_image_urls = await db.recent_image_urls(
+            pool, channel_db_id, topic=normalized_topic, limit=config.recent_image_limit
+        )
+        settings = await db.get_channel_settings(pool, channel_db_id)
+        policy = (settings or {}).get("image_policy") or "auto"
+
+    image_payload, image_url, image_source = await _resolve_media(
+        normalized_topic, text, policy, excluded_image_urls
+    )
+
+    try:
+        message_id: int | None = None
+        if image_payload:
+            image_bytes, filename = image_payload
+            sent = await bot.send_photo(
+                chat_id=chat_id,
+                photo=BufferedInputFile(image_bytes, filename=filename),
+                caption=_caption(text),
+                parse_mode=ParseMode.HTML,
+                show_caption_above_media=False,
+                disable_notification=True,
+            )
+            message_id = sent.message_id
+        else:
+            sent = await bot.send_message(
+                chat_id=chat_id,
+                text=_caption(text),
+                parse_mode=ParseMode.HTML,
+                link_preview_options=LinkPreviewOptions(is_disabled=True),
+                disable_notification=True,
+            )
+            message_id = sent.message_id
+
+        if use_db and channel_db_id is not None:
+            await db.add_published_post(
+                pool,
+                channel_db_id,
+                topic=normalized_topic,
+                mode=normalized_mode,
+                text=text,
+                image_url=image_url,
+                image_source=image_source,
+                telegram_message_id=message_id,
+            )
+        with_image = bool(image_payload)
+        logger.info("Custom post sent to %s (image: %s)", chat_id, with_image)
+        return PublishResult(True, with_image, normalized_topic, "custom text published")
+    except Exception as exc:
+        logger.exception("Custom text publish failed")
+        return PublishResult(False, bool(image_payload), normalized_topic, str(exc))
+
+
 async def _resolve_slot_topic(pool, channel_id: int, fallback_topic: str) -> str:
     """Тема слота: ротация из пула тем канала, иначе тема слота/канала."""
     try:
@@ -416,6 +501,11 @@ async def prepare_queued_post(item: dict) -> None:
 
     if not post_text:
         logger.warning("Pre-generation: all providers failed for schedule %s", item["schedule_id"])
+        await notify_owner(
+            "⚠️ Не удалось подготовить пост для очереди\n"
+            f"Тема: {html.escape(topic)}\n"
+            "Все AI-провайдеры недоступны. Проверьте ключи в разделе «API-ключи»."
+        )
         return
 
     image_url: str | None = None
@@ -443,6 +533,13 @@ async def prepare_queued_post(item: dict) -> None:
         scheduled_at=item["scheduled_at"],
     )
     logger.info("Queued post %s prepared for schedule %s (%s)", post_id, item["schedule_id"], topic)
+
+    slot_time = str(item.get("post_time") or "")[:5]
+    await notify_owner(
+        f"📝 Пост подготовлен и ждёт в очереди\n"
+        f"Слот: {slot_time} · Тема: {html.escape(topic)}\n"
+        f"Откройте Mini App, чтобы посмотреть, поправить или отклонить его до публикации."
+    )
 
 
 async def publish_prepared(post: dict, chat_id: str, image_policy: str) -> PublishResult:
@@ -528,47 +625,107 @@ async def publish_prepared(post: dict, chat_id: str, image_policy: str) -> Publi
         return PublishResult(False, False, post["topic"], str(exc))
 
 
+async def notify_owner(text: str) -> None:
+    """Отправляет служебное уведомление владельцу бота в личку.
+
+    Работает тихо: любые ошибки (владелец не начал диалог с ботом и т.п.)
+    логируются, но не влияют на основной поток.
+    """
+    if bot is None or not config.admin_user_ids:
+        return
+    for admin_id in config.admin_user_ids:
+        try:
+            await bot.send_message(
+                chat_id=admin_id,
+                text=text,
+                parse_mode=ParseMode.HTML,
+                link_preview_options=LinkPreviewOptions(is_disabled=True),
+                disable_notification=False,
+            )
+        except Exception:
+            logger.warning("Owner notification failed for %s", admin_id, exc_info=True)
+
+
 async def publish_scheduled(item: dict) -> PublishResult:
     """Публикация слота: пост из очереди либо свежая генерация."""
     pool = await db.get_pool(config.database_url)
     queued = await db.get_queued_post_for_slot(pool, item["schedule_id"], item["scheduled_at"])
     if queued:
-        return await publish_prepared(queued, item["chat_id"], item.get("image_policy") or "auto")
+        result = await publish_prepared(queued, item["chat_id"], item.get("image_policy") or "auto")
+    else:
+        topic = await _resolve_slot_topic(pool, item["channel_id"], _normalize_topic(item["topic"]))
+        result = await publish_post(
+            topic,
+            target_chat=item["chat_id"],
+            mode=item["mode"],
+            image_policy=item.get("image_policy"),
+            schedule_id=item["schedule_id"],
+        )
 
-    topic = await _resolve_slot_topic(pool, item["channel_id"], _normalize_topic(item["topic"]))
-    return await publish_post(
-        topic,
-        target_chat=item["chat_id"],
-        mode=item["mode"],
-        image_policy=item.get("image_policy"),
-        schedule_id=item["schedule_id"],
-    )
+    slot_time = str(item.get("post_time") or "")[:5]
+    chat = html.escape(str(item.get("chat_id") or ""))
+    if result.ok:
+        await notify_owner(
+            f"✅ Пост по расписанию опубликован\n"
+            f"Канал: {chat}\n"
+            f"Слот: {slot_time} · Тема: {html.escape(result.topic)}\n"
+            f"{'С изображением' if result.with_image else 'Без изображения'}"
+        )
+    else:
+        await notify_owner(
+            f"⚠️ Пост по расписанию не вышел\n"
+            f"Канал: {chat}\n"
+            f"Слот: {slot_time} · Тема: {html.escape(result.topic)}\n"
+            f"Причина: {html.escape(result.details[:200])}"
+        )
+    return result
 
 
-METRICS_INTERVAL_SECONDS = 6 * 3600
+METRICS_POLL_SECONDS = 60  # опрос каждую минуту (getChatMemberCount — дешёвый вызов)
+METRICS_HEARTBEAT_SECONDS = 3600  # запись раз в час, даже если число не изменилось
 
 
 async def run_metrics_collector() -> None:
-    """Периодически снимает количество подписчиков активных каналов."""
+    """Следит за числом подписчиков почти в реальном времени.
+
+    Опрашивает Telegram каждую минуту, но пишет в БД только когда значение
+    изменилось (+ часовой heartbeat, чтобы график не имел разрывов).
+    Так статистика обновляется ежеминутно без раздувания таблицы.
+    """
     if bot is None or not config.database_url:
         return
     pool = await db.get_pool(config.database_url)
+    last_counts: dict[int, int] = {}
+    last_written: dict[int, float] = {}
+
     while True:
         try:
             channels = await db.active_channels(pool)
+            now = asyncio.get_event_loop().time()
             for channel in channels:
                 chat_id = channel["chat_id"]
                 # личные чаты (preview) пропускаем — метрики только для каналов
                 if not (str(chat_id).startswith("@") or str(chat_id).startswith("-100")):
                     continue
+                cid = channel["id"]
                 try:
                     count = await bot.get_chat_member_count(chat_id=chat_id)
-                    await db.record_channel_metric(pool, channel["id"], count)
                 except Exception:
                     logger.warning("Metric snapshot failed for %s", chat_id, exc_info=True)
+                    continue
+
+                changed = last_counts.get(cid) != count
+                stale = now - last_written.get(cid, 0) >= METRICS_HEARTBEAT_SECONDS
+                if changed or stale:
+                    try:
+                        await db.record_channel_metric(pool, cid, count)
+                        last_counts[cid] = count
+                        last_written[cid] = now
+                    except Exception:
+                        logger.warning("Metric write failed for %s", chat_id, exc_info=True)
         except Exception:
             logger.exception("Metrics collector loop error")
-        await asyncio.sleep(METRICS_INTERVAL_SECONDS)
+        await asyncio.sleep(METRICS_POLL_SECONDS)
 
 
 @dp.message(Command("start", "help"))
@@ -738,7 +895,7 @@ async def run_bot():
                 return None
             return {"url": image.url, "source": image.source}
 
-        bridge_runner = await start_bridge(_generate_preview, publish_post, _fetch_image)
+        bridge_runner = await start_bridge(_generate_preview, publish_post, _fetch_image, publish_custom_text)
         asyncio.create_task(periodic_posting())
         await start_db_scheduler()
         await bot.delete_webhook(drop_pending_updates=True)
