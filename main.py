@@ -390,10 +390,14 @@ async def publish_custom_text(
     *,
     mode: str | None = None,
     target_chat: str | int | None = None,
+    image_url_override: str | None = None,
+    image_mode_override: str | None = None,
 ) -> PublishResult:
     """Публикует отредактированный пользователем текст без генерации.
 
-    Медиа подбирается по политике канала — как при обычной публикации.
+    Медиа: если пользователь выбрал фото в генераторе (image_url_override) —
+    используется оно; если задан image_mode_override ('ai'/'off') — он важнее
+    политики канала; иначе — политика канала, как при обычной публикации.
     """
     if bot is None:
         return PublishResult(False, False, _normalize_topic(topic), "BOT_TOKEN is not configured")
@@ -423,9 +427,41 @@ async def publish_custom_text(
         settings = await db.get_channel_settings(pool, channel_db_id)
         policy = (settings or {}).get("image_policy") or "auto"
 
-    image_payload, image_url, image_source = await _resolve_media(
-        normalized_topic, text, policy, excluded_image_urls
-    )
+    if image_mode_override in {"ai", "off", "auto"}:
+        policy = image_mode_override
+
+    if image_url_override and image_url_override.startswith("data:image/"):
+        # AI-фото, сгенерированное в предпросмотре генератора (base64)
+        try:
+            import base64 as _b64
+
+            b64_data = image_url_override.split(",", 1)[1]
+            image_payload = (_b64.b64decode(b64_data), "ai_image.png")
+            image_url = None  # data-URL в БД не храним
+            image_source = "AI (Gemini)"
+        except Exception:
+            logger.warning("Data URL decode failed, falling back to policy")
+            image_payload, image_url, image_source = await _resolve_media(
+                normalized_topic, text, policy, excluded_image_urls
+            )
+    elif image_url_override:
+        # Пользователь выбрал конкретное фото в предпросмотре
+        from image_fetcher import ImageResult
+
+        image_payload = await download_image(
+            ImageResult(url=image_url_override, source="выбрано вручную"), config
+        )
+        image_url = image_url_override if image_payload else None
+        image_source = "выбрано вручную" if image_payload else None
+        if not image_payload:
+            logger.warning("Chosen image download failed, falling back to policy")
+            image_payload, image_url, image_source = await _resolve_media(
+                normalized_topic, text, policy, excluded_image_urls
+            )
+    else:
+        image_payload, image_url, image_source = await _resolve_media(
+            normalized_topic, text, policy, excluded_image_urls
+        )
 
     try:
         message_id: int | None = None
@@ -912,7 +948,15 @@ async def run_bot():
                 return None
             return {"url": image.url, "source": image.source}
 
-        bridge_runner = await start_bridge(_generate_preview, publish_post, _fetch_image, publish_custom_text)
+        async def _ai_image(topic: str, text: str):
+            """AI-фото для предпросмотра. Возвращает bytes+имя, None или код ошибки."""
+            if not ai_image_available(config):
+                return "no_key"
+            return await generate_ai_image(topic, text, config)
+
+        bridge_runner = await start_bridge(
+            _generate_preview, publish_post, _fetch_image, publish_custom_text, _ai_image
+        )
         asyncio.create_task(periodic_posting())
         await start_db_scheduler()
         await bot.delete_webhook(drop_pending_updates=True)

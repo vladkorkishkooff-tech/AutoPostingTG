@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Eye, Send, Pencil, Check } from 'lucide-react'
+import { Eye, Send, Pencil, Check, ImageIcon, Sparkles, X, RefreshCw } from 'lucide-react'
 import { PageHeader } from '@/components/ui'
 import { apiFetch, haptic } from '@/lib/client'
 
@@ -29,6 +29,11 @@ export default function GeneratorPage() {
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState<'preview' | 'publish' | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  // Фото: url (сток или data-URL от AI), source — подпись источника
+  const [photo, setPhoto] = useState<{ url: string; source: string } | null>(null)
+  const [photoBusy, setPhotoBusy] = useState<'stock' | 'ai' | null>(null)
+  const [photoHint, setPhotoHint] = useState<string | null>(null)
+  const [seenUrls, setSeenUrls] = useState<string[]>([])
 
   async function run(action: 'preview' | 'publish') {
     haptic('medium')
@@ -41,7 +46,15 @@ export default function GeneratorPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
-          isCustom ? { topic, mode, action: 'publish_custom', text: preview } : { topic, mode, action },
+          isCustom
+            ? {
+                topic,
+                mode,
+                action: 'publish_custom',
+                text: preview,
+                ...(photo ? { imageUrl: photo.url } : {}),
+              }
+            : { topic, mode, action },
         ),
       })
       const data = await res.json()
@@ -58,12 +71,60 @@ export default function GeneratorPage() {
         setMessage('Пост опубликован в канал.')
         setPreview(null)
         setEditing(false)
+        setPhoto(null)
+        setPhotoHint(null)
       }
     } catch {
       haptic('error')
       setMessage('Сетевая ошибка.')
     } finally {
       setBusy(null)
+    }
+  }
+
+  async function fetchPhoto(kind: 'stock' | 'ai') {
+    haptic('medium')
+    setPhotoBusy(kind)
+    setPhotoHint(null)
+    try {
+      const res = await apiFetch('/api/generate-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: kind,
+          topic,
+          text: preview ?? '',
+          excludedUrls: seenUrls,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        haptic('error')
+        if (data.error === 'no_key') {
+          setPhotoHint(
+            'Для AI-генерации фото нужен ключ Google Gemini. Добавьте GEMINI_API_KEY в .env бота или ключ Gemini в разделе «Ещё» → «API-ключи» — и перезапустите бота.',
+          )
+        } else if (data.error === 'image_not_found') {
+          setPhotoHint('Не нашлось подходящего фото по этой теме. Попробуйте уточнить тему.')
+        } else if (data.error === 'bot_unavailable') {
+          setPhotoHint('Бот недоступен. Проверьте, что он запущен.')
+        } else {
+          setPhotoHint('Не удалось получить фото. Попробуйте ещё раз.')
+        }
+        return
+      }
+      haptic('success')
+      if (kind === 'ai' && data.dataUrl) {
+        setPhoto({ url: data.dataUrl, source: 'AI (Gemini)' })
+      } else if (data.url) {
+        setPhoto({ url: data.url, source: data.source || 'сток' })
+        setSeenUrls((prev) => [...prev.slice(-15), data.url])
+      }
+    } catch {
+      haptic('error')
+      setPhotoHint('Сетевая ошибка.')
+    } finally {
+      setPhotoBusy(null)
     }
   }
 
@@ -190,6 +251,76 @@ export default function GeneratorPage() {
                 </p>
               )}
             </div>
+          </div>
+        </section>
+
+        <section aria-label="Фото поста">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-[13px] font-medium text-foreground">Фото поста</h2>
+            {photo ? (
+              <button
+                type="button"
+                onClick={() => {
+                  haptic('light')
+                  setPhoto(null)
+                  setPhotoHint(null)
+                }}
+                className="pressable flex items-center gap-1 text-[12px] font-medium text-muted-foreground hover:text-foreground"
+              >
+                <X size={13} aria-hidden="true" />
+                Убрать
+              </button>
+            ) : (
+              <span className="text-[11px] text-muted-foreground">без выбора — по настройкам канала</span>
+            )}
+          </div>
+
+          <div className="glass flex flex-col gap-3 p-4">
+            {photo ? (
+              <div className="flex flex-col gap-2">
+                <img
+                  src={photo.url || '/placeholder.svg'}
+                  alt={`Фото для поста: ${topic}`}
+                  className="max-h-56 w-full rounded-lg border border-border object-cover"
+                />
+                <span className="text-[11px] text-muted-foreground">
+                  {preview
+                    ? `Источник: ${photo.source} — это фото будет прикреплено к посту`
+                    : `Источник: ${photo.source} — нажмите Preview: фото прикрепляется к тексту из предпросмотра`}
+                </span>
+              </div>
+            ) : null}
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={photoBusy !== null}
+                onClick={() => fetchPhoto('stock')}
+                className="btn-outline-green pressable flex items-center justify-center gap-2 px-3 py-2.5 text-[13px] disabled:opacity-50"
+              >
+                {photo && photoBusy !== 'ai' ? (
+                  <RefreshCw size={14} className={photoBusy === 'stock' ? 'animate-spin' : ''} aria-hidden="true" />
+                ) : (
+                  <ImageIcon size={14} aria-hidden="true" />
+                )}
+                {photoBusy === 'stock' ? 'Поиск…' : photo ? 'Другое фото' : 'Стоковое фото'}
+              </button>
+              <button
+                type="button"
+                disabled={photoBusy !== null}
+                onClick={() => fetchPhoto('ai')}
+                className="btn-blue pressable flex items-center justify-center gap-2 px-3 py-2.5 text-[13px] disabled:opacity-50"
+              >
+                <Sparkles size={14} className={photoBusy === 'ai' ? 'animate-pulse' : ''} aria-hidden="true" />
+                {photoBusy === 'ai' ? 'Генерация…' : 'AI-фото'}
+              </button>
+            </div>
+
+            {photoHint ? (
+              <p className="rounded-lg border border-border bg-white/[0.03] p-3 text-[12px] leading-relaxed text-muted-foreground">
+                {photoHint}
+              </p>
+            ) : null}
           </div>
         </section>
 

@@ -5,6 +5,7 @@ Secured with a shared secret (BRIDGE_SECRET) — the Next.js API route sends it
 in the X-Bridge-Secret header. Never expose this port publicly without the secret.
 """
 
+import base64
 import logging
 import os
 
@@ -18,13 +19,20 @@ def _check_secret(request: web.Request) -> bool:
     return bool(secret) and request.headers.get("X-Bridge-Secret") == secret
 
 
-async def start_bridge(generate_preview, publish_post, fetch_image=None, publish_custom=None) -> web.AppRunner | None:
+async def start_bridge(
+    generate_preview,
+    publish_post,
+    fetch_image=None,
+    publish_custom=None,
+    ai_image=None,
+) -> web.AppRunner | None:
     """Start the bridge server.
 
     generate_preview(topic, mode) -> str | None
     publish_post(topic, mode=...) -> PublishResult
     fetch_image(topic, excluded_urls) -> dict | None  ({"url", "source"})
-    publish_custom(topic, text, mode=...) -> PublishResult  (публикация отредактированного текста)
+    publish_custom(topic, text, mode=..., image_url=..., image_mode=...) -> PublishResult
+    ai_image(topic, text) -> tuple[bytes, str] | None | str  (bytes+имя, None при сбое, str — код ошибки)
     """
     port = int(os.getenv("BRIDGE_PORT", "0") or "0")
     if not port:
@@ -52,7 +60,15 @@ async def start_bridge(generate_preview, publish_post, fetch_image=None, publish
             text = str(body.get("text") or "").strip()
             if not text:
                 return web.json_response({"error": "empty_text"}, status=400)
-            result = await publish_custom(topic or None, text, mode=mode)
+            image_url = str(body.get("imageUrl") or "").strip() or None
+            image_mode = str(body.get("imageMode") or "").strip() or None
+            result = await publish_custom(
+                topic or None,
+                text,
+                mode=mode,
+                image_url_override=image_url,
+                image_mode_override=image_mode,
+            )
             return web.json_response(
                 {"ok": result.ok, "withImage": result.with_image, "details": result.details},
                 status=200 if result.ok else 502,
@@ -87,12 +103,35 @@ async def start_bridge(generate_preview, publish_post, fetch_image=None, publish
             return web.json_response({"error": "image_not_found"}, status=404)
         return web.json_response(result)
 
+    async def handle_ai_image(request: web.Request) -> web.Response:
+        if not _check_secret(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        if ai_image is None:
+            return web.json_response({"error": "not_supported"}, status=501)
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid_json"}, status=400)
+
+        topic = str(body.get("topic") or "").strip() or "наука"
+        text = str(body.get("text") or "").strip()
+        result = await ai_image(topic, text)
+        if isinstance(result, str):
+            # Код ошибки, например "no_key" — нет ключа Gemini
+            return web.json_response({"error": result}, status=422)
+        if result is None:
+            return web.json_response({"error": "generation_failed"}, status=502)
+        image_bytes, filename = result
+        data_url = "data:image/png;base64," + base64.b64encode(image_bytes).decode("ascii")
+        return web.json_response({"dataUrl": data_url, "filename": filename})
+
     async def handle_health(_: web.Request) -> web.Response:
         return web.json_response({"ok": True})
 
     app = web.Application()
     app.router.add_post("/generate", handle_generate)
     app.router.add_post("/image", handle_image)
+    app.router.add_post("/ai_image", handle_ai_image)
     app.router.add_get("/health", handle_health)
 
     runner = web.AppRunner(app)

@@ -30,7 +30,14 @@ export async function POST(request: Request) {
             : body.action === 'publish'
               ? 'publish'
               : 'preview',
-        ...(body.action === 'publish_custom' ? { text: String(body.text ?? '').slice(0, 2000) } : {}),
+        ...(body.action === 'publish_custom'
+          ? {
+              text: String(body.text ?? '').slice(0, 2000),
+              // Фото, выбранное в предпросмотре: URL стокового или data-URL AI-изображения
+              ...(body.imageUrl ? { imageUrl: String(body.imageUrl).slice(0, 4_000_000) } : {}),
+              ...(body.imageMode ? { imageMode: String(body.imageMode).slice(0, 10) } : {}),
+            }
+          : {}),
       }),
       signal: AbortSignal.timeout(60_000),
     })

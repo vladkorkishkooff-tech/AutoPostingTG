@@ -1,8 +1,19 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import useSWR from 'swr'
 import Link from 'next/link'
-import { ExternalLink, Radio, KeyRound, CalendarClock, Check, ChevronRight, Sparkles } from 'lucide-react'
+import {
+  ExternalLink,
+  Radio,
+  KeyRound,
+  CalendarClock,
+  Check,
+  ChevronRight,
+  Sparkles,
+  Users,
+  Clock,
+} from 'lucide-react'
 import { PageHeader, StatCard, Skeleton, SectionTitle } from '@/components/ui'
 import { swrFetcher as fetcher, haptic } from '@/lib/client'
 
@@ -11,6 +22,62 @@ type Stats = {
   postsToday: number
   queued: number
   lastPost: { text: string; topic: string; published_at: string | null; image_url: string | null } | null
+  nextPostAt: string | null
+  subscribers: { current: number | null; delta24h: number | null; series: number[] } | null
+}
+
+/** «через 2 ч 14 мин» — живой отсчёт до следующего поста */
+function useCountdown(target: string | null): string | null {
+  const [label, setLabel] = useState<string | null>(null)
+  useEffect(() => {
+    if (!target) {
+      setLabel(null)
+      return
+    }
+    function tick() {
+      const ms = new Date(target as string).getTime() - Date.now()
+      if (ms <= 0) {
+        setLabel('вот-вот')
+        return
+      }
+      const totalMin = Math.round(ms / 60000)
+      const d = Math.floor(totalMin / 1440)
+      const h = Math.floor((totalMin % 1440) / 60)
+      const m = totalMin % 60
+      if (d > 0) setLabel(`через ${d} д ${h} ч`)
+      else if (h > 0) setLabel(`через ${h} ч ${m} мин`)
+      else setLabel(`через ${m} мин`)
+    }
+    tick()
+    const id = setInterval(tick, 30000)
+    return () => clearInterval(id)
+  }, [target])
+  return label
+}
+
+/** Мини-график динамики подписчиков (простая ломаная) */
+function Sparkline({ data }: { data: number[] }) {
+  if (data.length < 2) return null
+  const w = 120
+  const h = 34
+  const min = Math.min(...data)
+  const max = Math.max(...data)
+  const span = max - min || 1
+  const points = data
+    .map((v, i) => `${((i / (data.length - 1)) * w).toFixed(1)},${(h - 4 - ((v - min) / span) * (h - 8)).toFixed(1)}`)
+    .join(' ')
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="img" aria-label="Динамика подписчиков за 7 дней" className="shrink-0">
+      <polyline
+        points={points}
+        fill="none"
+        stroke="var(--color-primary)"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
 }
 
 type ConfigData = {
@@ -128,11 +195,18 @@ function ActiveHero({
   chatId,
   postsToday,
   queued,
+  nextPostAt,
+  subscribers,
 }: {
   chatId: string
   postsToday: number
   queued: number
+  nextPostAt: string | null
+  subscribers: Stats['subscribers']
 }) {
+  const countdown = useCountdown(nextPostAt)
+  const delta = subscribers?.delta24h
+
   return (
     <section aria-label="Статус системы" className="glass-featured flex flex-col gap-5 p-5">
       <div className="flex items-center justify-between">
@@ -145,16 +219,56 @@ function ActiveHero({
         </span>
       </div>
 
-      <div className="flex items-end gap-8">
-        <div className="flex flex-col">
-          <span className="num text-[34px] font-semibold leading-none text-foreground">{postsToday}</span>
-          <span className="mt-1.5 text-[11px] text-muted-foreground">постов сегодня</span>
+      {countdown ? (
+        <div className="flex items-center gap-2.5 rounded-lg border border-primary/25 bg-primary/[0.07] px-3.5 py-2.5">
+          <Clock size={15} className="shrink-0 text-primary" aria-hidden="true" />
+          <span className="text-[13px] text-foreground">
+            Следующий пост <strong className="font-semibold">{countdown}</strong>
+          </span>
         </div>
-        <div className="flex flex-col">
-          <span className="num text-[34px] font-semibold leading-none text-foreground">{queued}</span>
-          <span className="mt-1.5 text-[11px] text-muted-foreground">в очереди</span>
+      ) : (
+        <div className="flex items-center gap-2.5 rounded-lg border border-border bg-white/[0.03] px-3.5 py-2.5">
+          <Clock size={15} className="shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className="text-[13px] text-muted-foreground">Нет активных слотов расписания</span>
+        </div>
+      )}
+
+      <div className="flex items-end justify-between gap-4">
+        <div className="flex items-end gap-7">
+          <div className="flex flex-col">
+            <span className="num text-[34px] font-semibold leading-none text-foreground">{postsToday}</span>
+            <span className="mt-1.5 text-[11px] text-muted-foreground">постов сегодня</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="num text-[34px] font-semibold leading-none text-foreground">{queued}</span>
+            <span className="mt-1.5 text-[11px] text-muted-foreground">в очереди</span>
+          </div>
         </div>
       </div>
+
+      {subscribers?.current !== null && subscribers?.current !== undefined ? (
+        <div className="flex items-center justify-between gap-4 border-t border-border pt-4">
+          <div className="flex items-center gap-2.5">
+            <Users size={15} className="shrink-0 text-muted-foreground" aria-hidden="true" />
+            <div className="flex flex-col">
+              <span className="num text-[17px] font-semibold leading-tight text-foreground">
+                {subscribers.current.toLocaleString('ru-RU')}
+              </span>
+              <span className="text-[11px] text-muted-foreground">
+                подписчиков
+                {typeof delta === 'number' && delta !== 0 ? (
+                  <span className={delta > 0 ? ' text-[rgb(76,183,130)]' : ' text-destructive'}>
+                    {' '}
+                    {delta > 0 ? '+' : ''}
+                    {delta} за сутки
+                  </span>
+                ) : null}
+              </span>
+            </div>
+          </div>
+          <Sparkline data={subscribers.series} />
+        </div>
+      ) : null}
     </section>
   )
 }
@@ -212,6 +326,8 @@ export default function DashboardPage() {
                 chatId={config?.channel?.chat_id ?? ''}
                 postsToday={data?.postsToday ?? 0}
                 queued={data?.queued ?? 0}
+                nextPostAt={data?.nextPostAt ?? null}
+                subscribers={data?.subscribers ?? null}
               />
             ) : (
               <OnboardingCard hasChannel={hasChannel} hasKey={hasKey} hasSchedule={hasSchedule} />
