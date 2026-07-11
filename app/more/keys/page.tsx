@@ -87,12 +87,16 @@ export default function KeysPage() {
   return (
     <div className="flex min-h-dvh flex-col pb-20">
       <PageHeader
-        title="API хранилище"
+        title="API-ключи"
+        subtitle="Ваши ключи хранятся в зашифрованном виде"
         action={
           <button
             type="button"
-            onClick={() => setShowForm((v) => !v)}
-            className="btn-green flex items-center gap-1.5 px-3 py-1.5 text-xs"
+            onClick={() => {
+              haptic('light')
+              setShowForm((v) => !v)
+            }}
+            className="btn-green pressable flex items-center gap-1.5 px-3 py-2 text-xs"
           >
             <Plus size={14} aria-hidden="true" />
             Добавить

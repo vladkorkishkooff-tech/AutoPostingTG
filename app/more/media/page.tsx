@@ -2,8 +2,8 @@
 
 import { useState } from 'react'
 import useSWR from 'swr'
-import { Search, ChevronRight, X } from 'lucide-react'
-import { PageHeader } from '@/components/ui'
+import { Search, ChevronRight, X, ImageIcon } from 'lucide-react'
+import { PageHeader, EmptyState } from '@/components/ui'
 
 type Post = { id: number; topic: string; image_url: string | null; image_source: string | null }
 
@@ -22,7 +22,7 @@ export default function MediaPage() {
 
   return (
     <div>
-      <PageHeader title="Медиа лаборатория" />
+      <PageHeader title="Медиа" subtitle="Изображения из опубликованных постов" />
       <div className="fade-up flex flex-col gap-4 px-5 py-6">
         <div className="flex gap-2 overflow-x-auto">
           {SOURCES.map((s, i) => (
@@ -51,12 +51,11 @@ export default function MediaPage() {
         </div>
 
         {!isLoading && images.length === 0 ? (
-          <div className="glass flex flex-col items-center gap-2 p-6 text-center">
-            <p className="text-sm text-foreground">Галерея пуста</p>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Здесь появятся изображения из опубликованных постов — бот подбирает их автоматически.
-            </p>
-          </div>
+          <EmptyState
+            icon={<ImageIcon size={18} aria-hidden="true" />}
+            title="Галерея пуста"
+            description="Здесь появятся изображения из опубликованных постов — бот подбирает их автоматически."
+          />
         ) : null}
 
         <div className="grid grid-cols-4 gap-2">

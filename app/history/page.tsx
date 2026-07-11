@@ -1,9 +1,10 @@
 'use client'
 
 import useSWR from 'swr'
-import { ShieldCheck } from 'lucide-react'
-import { PageHeader, Skeleton } from '@/components/ui'
-import { swrFetcher as fetcher } from '@/lib/client'
+import Link from 'next/link'
+import { ShieldCheck, FileText } from 'lucide-react'
+import { PageHeader, Skeleton, EmptyState } from '@/components/ui'
+import { swrFetcher as fetcher, haptic } from '@/lib/client'
 
 type Post = {
   id: number
@@ -33,15 +34,17 @@ export default function HistoryPage() {
 
   return (
     <div>
-      <PageHeader title="История публикаций" />
+      <PageHeader title="История" subtitle="Все опубликованные посты вашего канала" />
 
       <div className="fade-up flex flex-col gap-5 px-5 py-6">
-        <div className="glass grid grid-cols-4 gap-2 p-4">
-          <MiniStat label="Всего постов" value={isLoading ? '—' : String(posts.length)} />
-          <MiniStat label="С фото" value={isLoading ? '—' : String(withImages)} />
-          <MiniStat label="Тем" value={isLoading ? '—' : String(topics)} />
-          <MiniStat label="Повторов" value="0" accent />
-        </div>
+        {!isLoading && posts.length > 0 ? (
+          <div className="glass grid grid-cols-4 gap-2 p-4">
+            <MiniStat label="Всего постов" value={String(posts.length)} />
+            <MiniStat label="С фото" value={String(withImages)} />
+            <MiniStat label="Тем" value={String(topics)} />
+            <MiniStat label="Повторов" value="0" accent />
+          </div>
+        ) : null}
 
         {isLoading ? (
           <div className="flex flex-col gap-3">
@@ -50,12 +53,20 @@ export default function HistoryPage() {
             <Skeleton className="h-[88px] !rounded-xl" />
           </div>
         ) : posts.length === 0 ? (
-          <div className="glass flex flex-col items-center gap-2 p-6 text-center">
-            <p className="text-sm text-foreground">История пуста</p>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Здесь появятся опубликованные посты — с текстом, фото и временем публикации.
-            </p>
-          </div>
+          <EmptyState
+            icon={<FileText size={18} aria-hidden="true" />}
+            title="История пуста"
+            description="Здесь появятся опубликованные посты — с текстом, фото и временем публикации."
+            action={
+              <Link
+                href="/generator"
+                onClick={() => haptic('light')}
+                className="btn-green pressable px-5 py-2.5 text-[13px]"
+              >
+                Создать первый пост
+              </Link>
+            }
+          />
         ) : (
           <section aria-label="Список публикаций" className="flex flex-col gap-3">
             {posts.map((post) => (

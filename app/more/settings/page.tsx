@@ -32,7 +32,7 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <PageHeader title="Настройки и безопасность" />
+      <PageHeader title="Настройки" subtitle="Канал, прокси и безопасность" />
       <div className="fade-up flex flex-col gap-5 px-5 py-6">
         <section aria-label="Канал">
           <h2 className="mb-2 px-1 text-sm text-muted-foreground">Канал</h2>

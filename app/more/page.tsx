@@ -44,7 +44,7 @@ const sections = [
 export default function MorePage() {
   return (
     <div>
-      <PageHeader title="Ещё" />
+      <PageHeader title="Ещё" subtitle="Ключи, провайдеры, стиль и настройки системы" />
       <div className="fade-up flex flex-col gap-2.5 px-5 py-6">
         {sections.map(({ href, icon: Icon, title, description }) => (
           <Link key={href} href={href}>

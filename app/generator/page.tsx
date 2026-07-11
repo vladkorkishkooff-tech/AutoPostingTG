@@ -62,7 +62,7 @@ export default function GeneratorPage() {
 
   return (
     <div>
-      <PageHeader title="AI Генератор поста" />
+      <PageHeader title="Генератор" subtitle="Создайте пост вручную — с предпросмотром перед публикацией" />
 
       <div className="fade-up flex flex-col gap-6 px-5 py-6">
         <label className="flex flex-col gap-2">

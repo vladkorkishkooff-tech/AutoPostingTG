@@ -1,10 +1,25 @@
 import type { ReactNode } from 'react'
 
-export function PageHeader({ title, action }: { title: string; action?: ReactNode }) {
+export function PageHeader({
+  title,
+  subtitle,
+  action,
+}: {
+  title: string
+  subtitle?: string
+  action?: ReactNode
+}) {
   return (
-    <header className="sticky top-0 z-40 flex items-center justify-between border-b border-border bg-background/90 px-5 py-4 backdrop-blur-md">
-      <h1 className="text-[15px] font-semibold tracking-tight text-foreground">{title}</h1>
-      {action}
+    <header className="flex items-end justify-between gap-3 px-5 pb-2 pt-8">
+      <div className="flex min-w-0 flex-col gap-1">
+        <h1 className="text-balance text-[26px] font-semibold leading-tight tracking-tight text-foreground">
+          {title}
+        </h1>
+        {subtitle ? (
+          <p className="text-pretty text-[13px] leading-relaxed text-muted-foreground">{subtitle}</p>
+        ) : null}
+      </div>
+      {action ? <div className="shrink-0 pb-1">{action}</div> : null}
     </header>
   )
 }
@@ -25,6 +40,35 @@ export function StatCard({ label, value, hint }: { label: string; value: string;
 
 export function Skeleton({ className = '' }: { className?: string }) {
   return <div className={`skeleton ${className}`} aria-hidden="true" />
+}
+
+export function EmptyState({
+  icon,
+  title,
+  description,
+  action,
+}: {
+  icon: ReactNode
+  title: string
+  description?: string
+  action?: ReactNode
+}) {
+  return (
+    <div className="glass flex flex-col items-center gap-3 px-5 py-9 text-center">
+      <span className="flex size-11 items-center justify-center rounded-full border border-border bg-white/[0.04] text-muted-foreground">
+        {icon}
+      </span>
+      <div className="flex flex-col gap-1">
+        <p className="text-[13px] font-medium text-foreground">{title}</p>
+        {description ? (
+          <p className="mx-auto max-w-[280px] text-pretty text-[12px] leading-relaxed text-muted-foreground">
+            {description}
+          </p>
+        ) : null}
+      </div>
+      {action ? <div className="mt-1">{action}</div> : null}
+    </div>
+  )
 }
 
 export function SectionTitle({ children, action }: { children: ReactNode; action?: ReactNode }) {

@@ -2,7 +2,7 @@
 
 import useSWR from 'swr'
 import Link from 'next/link'
-import { ExternalLink, RefreshCw, Radio, KeyRound, CalendarClock, Check, ChevronRight, Sparkles } from 'lucide-react'
+import { ExternalLink, Radio, KeyRound, CalendarClock, Check, ChevronRight, Sparkles } from 'lucide-react'
 import { PageHeader, StatCard, Skeleton, SectionTitle } from '@/components/ui'
 import { swrFetcher as fetcher, haptic } from '@/lib/client'
 
@@ -54,7 +54,6 @@ function OnboardingCard({
     },
   ]
   const doneCount = steps.filter((s) => s.done).length
-  const progress = Math.round((doneCount / steps.length) * 100)
 
   return (
     <section aria-label="Настройка системы" className="glass-featured flex flex-col gap-4 p-5">
@@ -71,8 +70,23 @@ function OnboardingCard({
         <span className="num shrink-0 text-[13px] font-medium text-muted-foreground">{doneCount}/3</span>
       </div>
 
-      <div className="progress-track" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
-        <div className="progress-fill" style={{ width: `${progress}%` }} />
+      <div
+        className="flex gap-1.5"
+        role="progressbar"
+        aria-valuenow={doneCount}
+        aria-valuemin={0}
+        aria-valuemax={steps.length}
+        aria-label={`Выполнено ${doneCount} из ${steps.length} шагов`}
+      >
+        {steps.map((step, i) => (
+          <span
+            key={i}
+            className={`h-1 flex-1 rounded-full transition-colors duration-500 ${
+              step.done ? 'bg-primary' : 'bg-white/10'
+            }`}
+            style={step.done ? { boxShadow: '0 0 8px -1px rgba(94,106,210,0.5)' } : undefined}
+          />
+        ))}
       </div>
 
       <div className="flex flex-col gap-2">
@@ -159,7 +173,7 @@ function DashboardSkeleton() {
 }
 
 export default function DashboardPage() {
-  const { data, isLoading: statsLoading, mutate } = useSWR<Stats>('/api/stats', fetcher)
+  const { data, isLoading: statsLoading } = useSWR<Stats>('/api/stats', fetcher)
   const { data: config, isLoading: configLoading } = useSWR<ConfigData>('/api/config', fetcher)
   const { data: keysData } = useSWR<KeysData>('/api/keys', fetcher)
   const { data: schedulesData } = useSWR<SchedulesData>('/api/schedules', fetcher)
@@ -183,18 +197,8 @@ export default function DashboardPage() {
     <div>
       <PageHeader
         title="Обзор"
-        action={
-          <button
-            type="button"
-            onClick={() => {
-              haptic('light')
-              mutate()
-            }}
-            aria-label="Обновить данные"
-            className="btn-outline-green pressable flex items-center justify-center p-2"
-          >
-            <RefreshCw size={14} aria-hidden="true" />
-          </button>
+        subtitle={
+          setupComplete ? 'Автопостинг работает в фоне' : 'Настройте систему и запустите автопостинг'
         }
       />
 
@@ -213,17 +217,19 @@ export default function DashboardPage() {
               <OnboardingCard hasChannel={hasChannel} hasKey={hasKey} hasSchedule={hasSchedule} />
             )}
 
-            <section aria-label="Показатели" className="flex flex-col gap-3">
-              <SectionTitle>Показатели</SectionTitle>
-              <div className="grid grid-cols-2 gap-3">
-                <StatCard label="Всего постов" value={data ? String(data.totalPosts) : '—'} />
-                <StatCard
-                  label="Провайдеры"
-                  value={totalProviders ? `${enabledProviders}/${totalProviders}` : '—'}
-                  hint={totalProviders ? 'онлайн' : undefined}
-                />
-              </div>
-            </section>
+            {setupComplete ? (
+              <section aria-label="Показатели" className="flex flex-col gap-3">
+                <SectionTitle>Показатели</SectionTitle>
+                <div className="grid grid-cols-2 gap-3">
+                  <StatCard label="Всего постов" value={data ? String(data.totalPosts) : '—'} />
+                  <StatCard
+                    label="Провайдеры"
+                    value={totalProviders ? `${enabledProviders}/${totalProviders}` : '—'}
+                    hint={totalProviders ? 'онлайн' : undefined}
+                  />
+                </div>
+              </section>
+            ) : null}
 
             <section aria-label="Последний автопост" className="flex flex-col gap-3">
               <SectionTitle

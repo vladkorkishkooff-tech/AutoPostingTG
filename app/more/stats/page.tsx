@@ -37,7 +37,7 @@ export default function StatsPage() {
 
   return (
     <main>
-      <PageHeader title="Статистика" />
+      <PageHeader title="Статистика" subtitle="Использование провайдеров и активность" />
 
       <div className="fade-up flex flex-col gap-4 px-5 py-6">
       <div className="grid grid-cols-2 gap-3">

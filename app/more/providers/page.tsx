@@ -1,7 +1,8 @@
 'use client'
 
 import useSWR from 'swr'
-import { PageHeader, Toggle, Skeleton } from '@/components/ui'
+import { Layers } from 'lucide-react'
+import { PageHeader, Toggle, Skeleton, EmptyState } from '@/components/ui'
 import { ProviderMark } from '@/components/provider-mark'
 
 type Provider = { provider: string; priority: number; is_enabled: boolean }
@@ -23,9 +24,8 @@ export default function ProvidersPage() {
 
   return (
     <div>
-      <PageHeader title="Стек провайдеров" />
+      <PageHeader title="Провайдеры" subtitle="Приоритет и маршрутизация AI-запросов" />
       <div className="fade-up flex flex-col gap-3 px-5 py-6">
-        <p className="px-0.5 text-[12px] text-muted-foreground">Приоритет и маршрутизация запросов</p>
 
         {isLoading ? (
           <div className="flex flex-col gap-3">
@@ -34,12 +34,11 @@ export default function ProvidersPage() {
             <Skeleton className="h-[72px] !rounded-xl" />
           </div>
         ) : providers.length === 0 ? (
-          <div className="glass flex flex-col items-center gap-2 p-6 text-center">
-            <p className="text-sm text-foreground">Провайдеры ещё не настроены</p>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Стек появится после первого запуска бота. Добавить свои ключи можно в разделе «API хранилище».
-            </p>
-          </div>
+          <EmptyState
+            icon={<Layers size={18} aria-hidden="true" />}
+            title="Провайдеры ещё не настроены"
+            description="Стек появится после первого запуска бота. Добавить свои ключи можно в разделе «API-ключи»."
+          />
         ) : (
           providers.map((p, index) => {
             const meta = META[p.provider] ?? { label: p.provider, cost: '' }

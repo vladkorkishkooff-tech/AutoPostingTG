@@ -2,8 +2,8 @@
 
 import { useState } from 'react'
 import useSWR from 'swr'
-import { Plus, Trash2 } from 'lucide-react'
-import { PageHeader, StatusPill, Toggle, Skeleton } from '@/components/ui'
+import { Plus, Trash2, CalendarClock } from 'lucide-react'
+import { PageHeader, StatusPill, Toggle, Skeleton, EmptyState } from '@/components/ui'
 import { swrFetcher as fetcher, apiFetch, haptic } from '@/lib/client'
 
 type Schedule = {
@@ -58,7 +58,7 @@ export default function SchedulePage() {
 
   return (
     <div>
-      <PageHeader title="Расписание" />
+      <PageHeader title="Расписание" subtitle="Бот публикует посты сам — в заданное время каждый день" />
 
       <div className="fade-up flex flex-col gap-5 px-5 py-6">
         <div className="flex items-center justify-between px-0.5">
@@ -93,12 +93,11 @@ export default function SchedulePage() {
             <Skeleton className="h-[62px] !rounded-xl" />
           </div>
         ) : slots.length === 0 ? (
-          <div className="glass flex flex-col items-center gap-2 p-6 text-center">
-            <p className="text-sm text-foreground">Расписание пусто</p>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Добавьте время публикации — бот будет автоматически постить в канал в указанные часы каждый день.
-            </p>
-          </div>
+          <EmptyState
+            icon={<CalendarClock size={18} aria-hidden="true" />}
+            title="Расписание пусто"
+            description="Добавьте время публикации выше — бот будет автоматически постить в канал в указанные часы каждый день."
+          />
         ) : (
           <section aria-label="Слоты расписания" className="relative flex flex-col gap-0">
             {slots.map((s, i) => (

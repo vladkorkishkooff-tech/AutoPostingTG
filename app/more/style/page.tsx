@@ -26,7 +26,7 @@ export default function StylePage() {
 
   return (
     <div>
-      <PageHeader title="Обучение стиля" />
+      <PageHeader title="Стиль" subtitle="Бот учится писать в манере вашего канала" />
       <div className="fade-up flex flex-col gap-5 px-5 py-6">
         <label className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
