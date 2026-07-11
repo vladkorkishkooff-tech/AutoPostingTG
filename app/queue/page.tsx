@@ -4,7 +4,7 @@ import { useState } from 'react'
 import useSWR from 'swr'
 import Image from 'next/image'
 import { Inbox, Check, X, Pencil, ImageIcon, Link2, RefreshCw } from 'lucide-react'
-import { PageHeader, Skeleton, EmptyState, StatusPill } from '@/components/ui'
+import { PageHeader, Skeleton, StatusPill } from '@/components/ui'
 import { BottomNav } from '@/components/bottom-nav'
 import { swrFetcher as fetcher, apiFetch, haptic } from '@/lib/client'
 
@@ -328,11 +328,34 @@ export default function QueuePage() {
             <Skeleton className="h-[180px] !rounded-xl" />
           </div>
         ) : posts.length === 0 ? (
-          <EmptyState
-            icon={<Inbox size={18} aria-hidden="true" />}
-            title="Очередь пуста"
-            description="Бот готовит посты заранее — за час до времени публикации. Подготовленный пост появится здесь, и вы сможете проверить его до отправки в канал."
-          />
+          <div className="flex flex-col gap-3">
+            <p className="eyebrow px-0.5">Как это работает</p>
+            <div className="ghost-card flex flex-col gap-3 p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-1">
+                  <span className="h-2.5 w-32 rounded bg-white/[0.07]" aria-hidden="true" />
+                  <span className="h-2 w-20 rounded bg-white/[0.05]" aria-hidden="true" />
+                </div>
+                <span className="pill-scheduled rounded-full px-2.5 py-1 text-[11px] opacity-60">на проверке</span>
+              </div>
+              <div className="flex flex-col gap-1.5" aria-hidden="true">
+                <span className="h-2 w-full rounded bg-white/[0.05]" />
+                <span className="h-2 w-full rounded bg-white/[0.05]" />
+                <span className="h-2 w-2/3 rounded bg-white/[0.05]" />
+              </div>
+              <div className="flex items-center gap-2 border-t border-border pt-3" aria-hidden="true">
+                <span className="h-8 flex-1 rounded-lg bg-white/[0.05]" />
+                <span className="size-8 rounded-lg bg-white/[0.04]" />
+                <span className="size-8 rounded-lg bg-white/[0.04]" />
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5 px-0.5">
+              <Inbox size={15} className="mt-0.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+                Бот готовит посты заранее — за час до времени публикации. Подготовленный пост появится здесь в таком виде: вы сможете отредактировать текст, заменить фото и одобрить его до отправки в канал.
+              </p>
+            </div>
+          </div>
         ) : (
           posts.map((p) => <QueueCard key={p.id} post={p} onChanged={() => mutate()} />)
         )}

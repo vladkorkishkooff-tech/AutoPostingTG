@@ -74,7 +74,7 @@ export function EmptyState({
 export function SectionTitle({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
     <div className="flex items-center justify-between px-0.5">
-      <h2 className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">{children}</h2>
+      <h2 className="eyebrow">{children}</h2>
       {action}
     </div>
   )

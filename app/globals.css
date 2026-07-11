@@ -312,6 +312,61 @@ body::before {
   letter-spacing: -0.02em;
 }
 
+/* ---- Eyebrow: mono uppercase micro-label (section identity) ---- */
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #8a8f98;
+}
+
+.eyebrow::before {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 1px;
+  background: var(--color-primary);
+  margin-right: 8px;
+  vertical-align: 1px;
+}
+
+/* ---- Telegram post mockup: preview looks like a real channel message ---- */
+
+.tg-post {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0) 40%), #182533;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 0.75rem 0.75rem 0.75rem 0.25rem;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+.tg-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #5e6ad2 0%, #7a85e0 100%);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* ---- Ghost card: dashed placeholder for empty states ---- */
+
+.ghost-card {
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.015);
+}
+
 /* ---- Onboarding step states ---- */
 
 .step-done {

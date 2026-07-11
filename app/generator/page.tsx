@@ -150,8 +150,8 @@ export default function GeneratorPage() {
       <div className="fade-up flex flex-col gap-6 px-5 py-6">
         <label className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <span className="text-[13px] font-medium text-foreground">Тема</span>
-            <span className="text-[11px] text-muted-foreground">{topic.length}/120</span>
+            <span className="eyebrow">Тема</span>
+            <span className="num text-[11px] text-muted-foreground">{topic.length}/120</span>
           </div>
           <input
             value={topic}
@@ -163,7 +163,7 @@ export default function GeneratorPage() {
         </label>
 
         <fieldset>
-          <legend className="mb-2 text-[13px] font-medium text-foreground">Режим</legend>
+          <legend className="eyebrow mb-2.5">Режим</legend>
           <div className="grid grid-cols-4 gap-2">
             {MODES.map((m) => (
               <button
@@ -187,8 +187,8 @@ export default function GeneratorPage() {
         </fieldset>
 
         <section aria-label="Предпросмотр поста">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-[13px] font-medium text-foreground">Предпросмотр поста</h2>
+          <div className="mb-2.5 flex items-center justify-between">
+            <p className="eyebrow">Так пост увидят подписчики</p>
             {preview && !editing ? (
               <button
                 type="button"
@@ -200,63 +200,81 @@ export default function GeneratorPage() {
               </button>
             ) : null}
           </div>
-          <div className="glass flex gap-3 p-4">
-            <div className="flex min-w-0 flex-1 flex-col justify-between gap-2">
-              {editing ? (
-                <>
-                  <textarea
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    rows={6}
-                    maxLength={2000}
-                    aria-label="Текст поста"
-                    className="w-full resize-y rounded-lg border border-primary/40 bg-transparent p-3 text-[13px] leading-relaxed text-foreground outline-none focus:border-primary/70"
-                  />
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-muted-foreground">{draft.length}/2000</span>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          haptic('light')
-                          setEditing(false)
-                        }}
-                        className="pressable rounded-lg px-3 py-1.5 text-[12px] text-muted-foreground"
-                      >
-                        Отмена
-                      </button>
-                      <button
-                        type="button"
-                        onClick={applyEdit}
-                        disabled={!draft.trim()}
-                        className="btn-green pressable flex items-center gap-1.5 px-3 py-1.5 text-[12px] disabled:opacity-50"
-                      >
-                        <Check size={13} aria-hidden="true" />
-                        Готово
-                      </button>
-                    </div>
-                  </div>
-                </>
-              ) : preview ? (
-                <>
-                  <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground">{preview}</p>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-primary">{topic || 'Тема'}</span>
-                    <span className="text-[11px] text-muted-foreground">будет опубликован этот текст</span>
-                  </div>
-                </>
-              ) : (
-                <p className="py-6 text-center text-[13px] text-muted-foreground">
-                  Нажмите Preview, чтобы сгенерировать текст
-                </p>
-              )}
+
+          {editing ? (
+            <div className="glass flex flex-col gap-2 p-4">
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                rows={6}
+                maxLength={2000}
+                aria-label="Текст поста"
+                className="w-full resize-y rounded-lg border border-primary/40 bg-transparent p-3 text-[13px] leading-relaxed text-foreground outline-none focus:border-primary/70"
+              />
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-muted-foreground">{draft.length}/2000</span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      haptic('light')
+                      setEditing(false)
+                    }}
+                    className="pressable rounded-lg px-3 py-1.5 text-[12px] text-muted-foreground"
+                  >
+                    Отмена
+                  </button>
+                  <button
+                    type="button"
+                    onClick={applyEdit}
+                    disabled={!draft.trim()}
+                    className="btn-green pressable flex items-center gap-1.5 px-3 py-1.5 text-[12px] disabled:opacity-50"
+                  >
+                    <Check size={13} aria-hidden="true" />
+                    Готово
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
+          ) : preview ? (
+            <div className="flex gap-2.5">
+              <span className="tg-avatar mt-0.5" aria-hidden="true">
+                {(topic || 'К').trim().charAt(0).toUpperCase()}
+              </span>
+              <div className="tg-post min-w-0 flex-1 overflow-hidden">
+                {photo ? (
+                  <img
+                    src={photo.url || '/placeholder.svg'}
+                    alt={`Фото для поста: ${topic}`}
+                    className="max-h-52 w-full object-cover"
+                  />
+                ) : null}
+                <div className="flex flex-col gap-1.5 p-3.5">
+                  <span className="text-[12.5px] font-semibold text-[#7a95e8]">Ваш канал</span>
+                  <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-[#e8ecf2]">{preview}</p>
+                  <div className="mt-0.5 flex items-center justify-end gap-1.5">
+                    <Eye size={11} className="text-[#6d7a8c]" aria-hidden="true" />
+                    <span className="num text-[11px] text-[#6d7a8c]">1.2K</span>
+                    <span className="num text-[11px] text-[#6d7a8c]">
+                      {new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="ghost-card flex flex-col items-center gap-1.5 px-6 py-8 text-center">
+              <p className="text-[13px] font-medium text-foreground">Здесь появится ваш пост</p>
+              <p className="text-[12px] leading-relaxed text-muted-foreground">
+                Нажмите «Предпросмотр» — текст сгенерируется и отобразится так, как его увидят подписчики канала
+              </p>
+            </div>
+          )}
         </section>
 
         <section aria-label="Фото поста">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-[13px] font-medium text-foreground">Фото поста</h2>
+          <div className="mb-2.5 flex items-center justify-between">
+            <h2 className="eyebrow">Фото поста</h2>
             {photo ? (
               <button
                 type="button"
@@ -277,18 +295,18 @@ export default function GeneratorPage() {
 
           <div className="glass flex flex-col gap-3 p-4">
             {photo ? (
-              <div className="flex flex-col gap-2">
-                <img
-                  src={photo.url || '/placeholder.svg'}
-                  alt={`Фото для поста: ${topic}`}
-                  className="max-h-56 w-full rounded-lg border border-border object-cover"
-                />
-                <span className="text-[11px] text-muted-foreground">
-                  {preview
-                    ? `Источник: ${photo.source} — это фото будет прикреплено к посту`
-                    : `Источник: ${photo.source} — нажмите Preview: фото прикрепляется к тексту из предпросмотра`}
-                </span>
-              </div>
+              <span className="text-[11px] text-muted-foreground">
+                {preview
+                  ? `Источник: ${photo.source} — фото показано в предпросмотре выше и будет прикреплено к посту`
+                  : `Источник: ${photo.source} — нажмите «Предпросмотр»: фото прикрепится к сгенерированному тексту`}
+              </span>
+            ) : null}
+            {photo && !preview ? (
+              <img
+                src={photo.url || '/placeholder.svg'}
+                alt={`Фото для поста: ${topic}`}
+                className="max-h-56 w-full rounded-lg border border-border object-cover"
+              />
             ) : null}
 
             <div className="grid grid-cols-2 gap-2">
@@ -351,7 +369,7 @@ export default function GeneratorPage() {
             className="btn-outline-green pressable flex items-center justify-center gap-2 px-4 py-3 text-sm disabled:opacity-50"
           >
             <Eye size={16} aria-hidden="true" />
-            {busy === 'preview' ? 'Генерация…' : 'Preview'}
+            {busy === 'preview' ? 'Генерация…' : preview ? 'Сгенерировать заново' : 'Предпросмотр'}
           </button>
           <button
             type="button"

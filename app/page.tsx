@@ -366,18 +366,36 @@ export default function DashboardPage() {
               </SectionTitle>
 
               {lastPost ? (
-                <div className="glass flex flex-col gap-4 p-4">
-                  <div className="flex gap-3.5">
-                    {lastPost.image_url ? (
-                      <img
-                        src={lastPost.image_url || '/placeholder.svg'}
-                        alt=""
-                        className="size-16 shrink-0 rounded-lg border border-border object-cover"
-                      />
-                    ) : null}
-                    <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                      <p className="text-[13px] leading-relaxed text-foreground">{lastPost.text}</p>
-                      <span className="text-[12px] text-primary">{lastPost.topic}</span>
+                <div className="flex flex-col gap-3">
+                  <div className="flex gap-2.5">
+                    <span className="tg-avatar mt-0.5" aria-hidden="true">
+                      {(config?.channel?.chat_id ?? 'К').replace('@', '').charAt(0).toUpperCase()}
+                    </span>
+                    <div className="tg-post min-w-0 flex-1 overflow-hidden">
+                      {lastPost.image_url ? (
+                        <img
+                          src={lastPost.image_url || '/placeholder.svg'}
+                          alt=""
+                          className="max-h-44 w-full object-cover"
+                        />
+                      ) : null}
+                      <div className="flex flex-col gap-1.5 p-3.5">
+                        <span className="text-[12.5px] font-semibold text-[#7a95e8]">
+                          {config?.channel?.chat_id ?? 'Ваш канал'}
+                        </span>
+                        <p className="line-clamp-4 text-[13.5px] leading-relaxed text-[#e8ecf2]">{lastPost.text}</p>
+                        <div className="mt-0.5 flex items-center justify-between gap-1.5">
+                          <span className="truncate text-[11px] text-[#6d7a8c]">{lastPost.topic}</span>
+                          {lastPost.published_at ? (
+                            <time className="num shrink-0 text-[11px] text-[#6d7a8c]" dateTime={lastPost.published_at}>
+                              {new Date(lastPost.published_at).toLocaleTimeString('ru-RU', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </time>
+                          ) : null}
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -395,7 +413,7 @@ export default function DashboardPage() {
                   ) : null}
                 </div>
               ) : (
-                <div className="glass flex flex-col items-center gap-3 px-5 py-8 text-center">
+                <div className="ghost-card flex flex-col items-center gap-3 px-5 py-8 text-center">
                   <p className="text-[13px] font-medium text-foreground">Постов пока нет</p>
                   <p className="max-w-[260px] text-[12px] leading-relaxed text-muted-foreground">
                     {setupComplete

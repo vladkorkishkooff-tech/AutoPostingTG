@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import useSWR from 'swr'
 import { Plus, Trash2, CalendarClock, ChevronDown } from 'lucide-react'
-import { PageHeader, StatusPill, Toggle, Skeleton, EmptyState } from '@/components/ui'
+import { PageHeader, StatusPill, Toggle, Skeleton } from '@/components/ui'
 import { swrFetcher as fetcher, apiFetch, haptic } from '@/lib/client'
 
 type Schedule = {
@@ -103,6 +103,26 @@ export default function SchedulePage() {
         </div>
 
         <div className="glass flex flex-col gap-3 p-3">
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Быстрый выбор времени">
+            {['09:00', '12:00', '15:00', '19:00', '21:00'].map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => {
+                  haptic('light')
+                  setTime(t)
+                }}
+                aria-pressed={time === t}
+                className={`num pressable rounded-full border px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                  time === t
+                    ? 'border-primary/50 bg-primary/10 text-foreground'
+                    : 'border-border bg-white/[0.03] text-muted-foreground'
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
           <div className="flex items-center gap-3">
             <input
               type="time"
@@ -203,11 +223,29 @@ export default function SchedulePage() {
             <Skeleton className="h-[62px] !rounded-xl" />
           </div>
         ) : slots.length === 0 ? (
-          <EmptyState
-            icon={<CalendarClock size={18} aria-hidden="true" />}
-            title="Расписание пусто"
-            description="Добавьте время публикации выше — бот будет автоматически постить в канал в указанные часы каждый день."
-          />
+          <div className="flex flex-col gap-3">
+            <p className="eyebrow px-0.5">Так будет выглядеть ваш день</p>
+            {[
+              { t: '09:00', label: 'Утренний пост' },
+              { t: '15:00', label: 'Дневной пост' },
+              { t: '21:00', label: 'Вечерний пост' },
+            ].map((g, i) => (
+              <div key={g.t} className="flex gap-3">
+                <div className="flex w-14 shrink-0 flex-col items-center">
+                  <span className="num text-[12px] text-muted-foreground/50">{g.t}</span>
+                  <span className="mt-1.5 size-2 rounded-full border border-dashed border-muted-foreground/40" aria-hidden="true" />
+                  {i < 2 ? <span className="mt-1 w-px flex-1 border-l border-dashed border-border" aria-hidden="true" /> : null}
+                </div>
+                <div className="ghost-card flex flex-1 items-center gap-3 px-3.5 py-3">
+                  <CalendarClock size={15} className="text-muted-foreground/50" aria-hidden="true" />
+                  <span className="text-[12.5px] text-muted-foreground/60">{g.label} — добавьте слот выше</span>
+                </div>
+              </div>
+            ))}
+            <p className="px-0.5 text-[12px] leading-relaxed text-muted-foreground">
+              Бот публикует посты сам в указанные часы каждый день. Начните с 2–3 слотов — этого достаточно для стабильного роста.
+            </p>
+          </div>
         ) : (
           <section aria-label="Слоты расписания" className="relative flex flex-col gap-0">
             {slots.map((s, i) => (
