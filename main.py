@@ -2,13 +2,14 @@ import asyncio
 import html
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from aiogram.filters.command import CommandObject
-from aiogram.types import BotCommand, KeyboardButton, LinkPreviewOptions, ReplyKeyboardMarkup
+from aiogram.types import BotCommand, KeyboardButton, LinkPreviewOptions, MenuButtonWebApp, ReplyKeyboardMarkup, WebAppInfo
 from aiogram.types import BufferedInputFile
 
 import db
@@ -17,7 +18,7 @@ from ai_image import ai_image_available, generate_ai_image
 from bridge import start_bridge
 from config import AppConfig, load_config
 from scheduler import run_scheduler
-from user_keys import fetch_user_providers, log_usage
+from user_keys import fetch_user_providers, key_attempt_logger, log_usage, mark_key_used
 from content_history import ContentHistory
 from image_fetcher import download_image, get_science_photo
 
@@ -68,6 +69,12 @@ class PublishResult:
     with_image: bool
     topic: str
     details: str
+    outcome: str = "failed"
+    message_id: int | None = None
+    telegram_chat_id: int | None = None
+    channel_title: str | None = None
+    message_link: str | None = None
+    error_code: str | None = None
 
 
 @dataclass(frozen=True)
@@ -90,19 +97,22 @@ def _parse_command_args(raw: str | None) -> CommandInput:
     return CommandInput(topic=_normalize_topic(raw), mode=normalize_mode(config.default_mode, config))
 
 
-def _channel_url(config: AppConfig) -> str:
-    if config.channel_url:
-        return config.channel_url
-    if config.channel_id.startswith("@"):
-        return f"https://t.me/{config.channel_id.lstrip('@')}"
-    return ""
+def _default_channel_context() -> dict:
+    username = config.channel_id.lstrip("@") if config.channel_id.startswith("@") else None
+    return {
+        "telegram_title": "Научные факты",
+        "telegram_username": username,
+        "footer_title": "Научные факты",
+        "footer_url": config.channel_url or (f"https://t.me/{username}" if username else None),
+    }
 
 
-def _channel_footer(config: AppConfig) -> str:
-    url = _channel_url(config)
-    if not url:
-        return "\n\nНаучные факты"
-    return f'\n\n<a href="{url}">Научные факты</a>'
+def _channel_footer(channel: dict | None = None) -> str:
+    channel = channel or _default_channel_context()
+    title = str(channel.get("telegram_title") or channel.get("footer_title") or channel.get("title") or "Канал")
+    url = f"https://t.me/{channel['telegram_username']}" if channel.get("telegram_username") else channel.get("footer_url")
+    safe_title = html.escape(title)
+    return f'\n\n<a href="{html.escape(str(url), quote=True)}">{safe_title}</a>' if url else f"\n\n{safe_title}"
 
 
 def _is_allowed(message: types.Message) -> bool:
@@ -120,13 +130,102 @@ async def _deny_if_needed(message: types.Message) -> bool:
     return True
 
 
-def _caption(text: str) -> str:
-    suffix = _channel_footer(config)
+def _render_post_text(text: str, channel: dict | None = None, *, caption: bool) -> str:
+    """Render Telegram HTML without applying the photo limit to text posts."""
+    suffix = _channel_footer(channel)
     text = html.escape(text)
-    limit = 1024 - len(suffix)
+    limit = (1024 if caption else 4096) - len(suffix)
     if len(text) > limit:
         text = text[: limit - 3].rstrip() + "..."
     return text + suffix
+
+
+def _caption(text: str, channel: dict | None = None) -> str:
+    return _render_post_text(text, channel, caption=True)
+
+
+def _text_message(text: str, channel: dict | None = None) -> str:
+    return _render_post_text(text, channel, caption=False)
+
+
+def _message_link(username: str | None, message_id: int) -> str | None:
+    return f"https://t.me/{username}/{message_id}" if username else None
+
+
+def _chat_type_value(chat) -> str:
+    value = getattr(chat, "type", "")
+    return str(getattr(value, "value", value)).lower()
+
+
+def _confirmed_message(sent, expected_target: str | int) -> tuple[int, int, str | None, str | None]:
+    """Prove Telegram delivered to the requested channel, not a DM/group."""
+    chat = sent.chat
+    if _chat_type_value(chat) != "channel":
+        raise RuntimeError("telegram_target_not_channel")
+    actual_chat_id = int(chat.id)
+    expected = str(expected_target).strip()
+    username = getattr(chat, "username", None)
+    if expected.startswith("-100") and actual_chat_id != int(expected):
+        raise RuntimeError("telegram_target_mismatch")
+    if expected.startswith("@") and str(username or "").lower() != expected[1:].lower():
+        raise RuntimeError("telegram_target_mismatch")
+    message_id = int(sent.message_id)
+    return message_id, actual_chat_id, getattr(chat, "title", None), _message_link(username, message_id)
+
+
+async def verify_channel_target(target: str | int) -> dict:
+    """Resolve a Telegram channel and prove that this bot can publish to it."""
+    value = str(target).strip()
+    if bot is None:
+        return {"ok": False, "error": "bot_unavailable"}
+    if not db.is_valid_channel_target(value):
+        return {"ok": False, "error": "invalid_publication_target"}
+    try:
+        chat = await bot.get_chat(value)
+    except Exception:
+        logger.warning("Channel verification lookup failed for %s", value, exc_info=True)
+        return {"ok": False, "error": "channel_not_found"}
+    if _chat_type_value(chat) != "channel":
+        return {"ok": False, "error": "target_not_channel"}
+    try:
+        me = await bot.get_me()
+        member = await bot.get_chat_member(chat.id, me.id)
+    except Exception:
+        logger.warning("Channel permission lookup failed for %s", value, exc_info=True)
+        return {"ok": False, "error": "permission_check_failed"}
+    status_value = str(getattr(getattr(member, "status", ""), "value", getattr(member, "status", ""))).lower()
+    is_owner = status_value in {"creator", "owner"}
+    is_admin = status_value == "administrator"
+    if not (is_owner or is_admin):
+        return {"ok": False, "error": "bot_not_admin"}
+    can_post = is_owner or bool(getattr(member, "can_post_messages", False))
+    if not can_post:
+        return {"ok": False, "error": "bot_cannot_post"}
+    username = getattr(chat, "username", None)
+    return {
+        "ok": True,
+        "chatId": int(chat.id),
+        "title": getattr(chat, "title", None),
+        "username": username,
+        "canPost": True,
+    }
+
+
+async def _persist_channel_verification_failure(
+    target: str | int, owner_telegram_id: int | None, error_code: str
+) -> None:
+    if not config.database_url or not owner_telegram_id or not db.is_valid_channel_target(target):
+        return
+    try:
+        pool = await db.get_pool(config.database_url)
+        owner_id = await db.ensure_user(pool, owner_telegram_id)
+        channel = await db.channel_for_owner_target(pool, owner_id, target)
+        if channel:
+            await db.update_channel_verification(
+                pool, channel["id"], verified=False, can_post=False, error=error_code
+            )
+    except Exception:
+        logger.exception("Failed to persist channel verification failure")
 
 
 def _main_keyboard() -> ReplyKeyboardMarkup:
@@ -185,6 +284,9 @@ async def _resolve_media(
     post_text: str,
     image_policy: str,
     excluded_image_urls: set[str],
+    *,
+    user_providers: list[dict] | None = None,
+    on_ai_attempt=None,
 ) -> tuple[tuple[bytes, str] | None, str | None, str | None]:
     """Подбирает медиа по политике канала.
 
@@ -195,13 +297,21 @@ async def _resolve_media(
     if image_policy == "off":
         return None, None, None
 
-    if image_policy == "ai" and ai_image_available(config):
-        ai_payload = await generate_ai_image(topic, post_text, config)
+    if image_policy == "ai" and ai_image_available(config, user_providers):
+        ai_payload = await generate_ai_image(
+            topic, post_text, config, user_providers=user_providers, on_attempt=on_ai_attempt
+        )
         if ai_payload:
             return ai_payload, None, "AI (Gemini)"
         logger.info("AI image failed, falling back to stock photos")
 
-    image = await get_science_photo(topic, config, excluded_urls=excluded_image_urls)
+    image = await get_science_photo(
+        topic,
+        config,
+        excluded_urls=excluded_image_urls,
+        context=post_text,
+        user_providers=user_providers,
+    )
     payload = await download_image(image, config) if image else None
     if payload and image:
         return payload, image.url, image.source
@@ -216,6 +326,7 @@ async def publish_post(
     image_policy: str | None = None,
     schedule_id: int | None = None,
     scheduled_at=None,
+    owner_telegram_id: int | None = None,
 ) -> PublishResult:
     if bot is None:
         return PublishResult(False, False, _normalize_topic(topic), "BOT_TOKEN is not configured")
@@ -223,6 +334,13 @@ async def publish_post(
     normalized_topic = _normalize_topic(topic)
     normalized_mode = normalize_mode(mode, config)
     chat_id = target_chat or config.channel_id
+    verification = await verify_channel_target(chat_id)
+    if not verification.get("ok"):
+        error_code = str(verification.get("error") or "channel_verification_failed")
+        await _persist_channel_verification_failure(
+            chat_id, owner_telegram_id or next(iter(config.admin_user_ids), 0), error_code
+        )
+        return PublishResult(False, False, normalized_topic, error_code, error_code=error_code)
     logger.info("Preparing post for topic: %s, mode: %s", normalized_topic, normalized_mode)
 
     use_db = bool(config.database_url)
@@ -231,14 +349,30 @@ async def publish_post(
     owner_id: int | None = None
     history: ContentHistory | None = None
     user_providers: list[dict] = []
+    channel_context = {
+        "telegram_title": verification.get("title"),
+        "telegram_username": verification.get("username"),
+        "footer_title": verification.get("title"),
+        "footer_url": f"https://t.me/{verification['username']}" if verification.get("username") else None,
+    }
 
     if use_db:
         pool = await db.get_pool(config.database_url)
-        owner_telegram_id = next(iter(config.admin_user_ids), 0)
-        owner_id = await db.ensure_user(pool, owner_telegram_id)
+        owner_tg_id = owner_telegram_id or next(iter(config.admin_user_ids), 0)
+        owner_id = await db.ensure_user(pool, owner_tg_id)
         channel_db_id = await db.ensure_channel(
             pool, owner_id, str(chat_id), topic=normalized_topic, mode=normalized_mode
         )
+        await db.update_channel_verification(
+            pool,
+            channel_db_id,
+            verified=True,
+            telegram_chat_id=int(verification["chatId"]),
+            title=verification.get("title"),
+            username=verification.get("username"),
+            can_post=True,
+        )
+        channel_context = (await db.get_channel_settings(pool, channel_db_id)) or channel_context
         avoid_texts = await db.recent_texts(
             pool, channel_db_id, topic=normalized_topic, mode=normalized_mode, limit=config.recent_post_limit
         )
@@ -261,8 +395,21 @@ async def publish_post(
             candidate, topic=normalized_topic, mode=normalized_mode, limit=config.recent_post_limit
         )
 
-    async def _log_attempt(provider_name: str, model: str, success: bool, error: str | None, duration_ms: int):
+    async def _log_attempt(
+        provider_name: str,
+        model: str,
+        success: bool,
+        error: str | None,
+        duration_ms: int,
+        key_id: int | None,
+    ):
         if use_db and pool is not None:
+            if key_id is not None:
+                await mark_key_used(
+                    pool,
+                    key_id,
+                    None if success else (error or "generation_failed")[:120],
+                )
             await log_usage(
                 pool,
                 user_id=owner_id,
@@ -284,6 +431,7 @@ async def publish_post(
             avoid_texts,
             user_providers=user_providers,
             on_attempt=_log_attempt if use_db else None,
+            style_profile=channel_context.get("style_profile") if use_db else None,
         )
         if candidate is None:
             break
@@ -320,43 +468,57 @@ async def publish_post(
     policy = policy or "auto"
 
     image_payload, image_url, image_source = await _resolve_media(
-        normalized_topic, post_text, policy, excluded_image_urls
+        normalized_topic,
+        post_text,
+        policy,
+        excluded_image_urls,
+        user_providers=user_providers,
+        on_ai_attempt=key_attempt_logger(pool) if use_db else None,
     )
 
+    publishing_post_id: int | None = None
+    if use_db:
+        publishing_post_id, _ = await db.insert_publishing_post(
+            pool,
+            channel_db_id,
+            topic=normalized_topic,
+            mode=normalized_mode,
+            text=post_text,
+            image_url=image_url,
+            image_source=image_source,
+            schedule_id=schedule_id,
+            media_type="photo" if image_payload else None,
+        )
+
     try:
-        message_id: int | None = None
         if image_payload:
             image_bytes, filename = image_payload
             sent = await bot.send_photo(
                 chat_id=chat_id,
                 photo=BufferedInputFile(image_bytes, filename=filename),
-                caption=_caption(post_text),
+                caption=_caption(post_text, channel_context),
                 parse_mode=ParseMode.HTML,
                 show_caption_above_media=False,
                 disable_notification=True,
             )
-            message_id = sent.message_id
         else:
             sent = await bot.send_message(
                 chat_id=chat_id,
-                text=_caption(post_text),
+                text=_text_message(post_text, channel_context),
                 parse_mode=ParseMode.HTML,
                 link_preview_options=LinkPreviewOptions(is_disabled=True),
                 disable_notification=True,
             )
-            message_id = sent.message_id
+        message_id, actual_chat_id, actual_title, message_link = _confirmed_message(sent, chat_id)
 
         if use_db:
-            await db.add_published_post(
+            await db.mark_post_published(
                 pool,
-                channel_db_id,
-                topic=normalized_topic,
-                mode=normalized_mode,
-                text=post_text,
-                image_url=image_url,
-                image_source=image_source,
-                telegram_message_id=message_id,
-                schedule_id=schedule_id,
+                publishing_post_id,
+                message_id,
+                telegram_chat_id=actual_chat_id,
+                target_channel_title=actual_title,
+                telegram_message_link=message_link,
             )
             await log_usage(
                 pool,
@@ -378,10 +540,20 @@ async def publish_post(
         with_image = bool(image_payload)
         logger.info("Post sent to %s (image: %s)", chat_id, with_image)
         details = f"sent with image from {image_source}" if with_image else "sent without image"
-        return PublishResult(True, with_image, normalized_topic, details)
+        return PublishResult(
+            True, with_image, normalized_topic, details,
+            outcome="published", message_id=message_id, telegram_chat_id=actual_chat_id,
+            channel_title=actual_title, message_link=message_link,
+        )
     except Exception as exc:
         logger.exception("Telegram send failed")
-        return PublishResult(False, bool(image_payload), normalized_topic, str(exc))
+        error_code = str(exc) if str(exc).startswith("telegram_") else "telegram_send_failed"
+        if use_db and publishing_post_id is not None:
+            try:
+                await db.mark_post_failed(pool, publishing_post_id, str(exc), error_code=error_code)
+            except Exception:
+                logger.exception("Failed to persist publication failure")
+        return PublishResult(False, bool(image_payload), normalized_topic, str(exc), error_code=error_code)
 
 
 async def publish_custom_text(
@@ -392,6 +564,7 @@ async def publish_custom_text(
     target_chat: str | int | None = None,
     image_url_override: str | None = None,
     image_mode_override: str | None = None,
+    owner_telegram_id: int | None = None,
 ) -> PublishResult:
     """Публикует отредактированный пользователем текст без генерации.
 
@@ -407,25 +580,53 @@ async def publish_custom_text(
     normalized_topic = _normalize_topic(topic)
     normalized_mode = normalize_mode(mode, config)
     chat_id = target_chat or config.channel_id
+    verification = await verify_channel_target(chat_id)
+    if not verification.get("ok"):
+        error_code = str(verification.get("error") or "channel_verification_failed")
+        await _persist_channel_verification_failure(
+            chat_id, owner_telegram_id or next(iter(config.admin_user_ids), 0), error_code
+        )
+        return PublishResult(False, False, normalized_topic, error_code, error_code=error_code)
 
     use_db = bool(config.database_url)
     pool = None
     channel_db_id: int | None = None
     excluded_image_urls: set[str] = set()
     policy = "auto"
+    user_providers: list[dict] = []
+    channel_context = {
+        "telegram_title": verification.get("title"),
+        "telegram_username": verification.get("username"),
+        "footer_title": verification.get("title"),
+        "footer_url": f"https://t.me/{verification['username']}" if verification.get("username") else None,
+    }
 
     if use_db:
         pool = await db.get_pool(config.database_url)
-        owner_telegram_id = next(iter(config.admin_user_ids), 0)
-        owner_id = await db.ensure_user(pool, owner_telegram_id)
+        owner_tg_id = owner_telegram_id or next(iter(config.admin_user_ids), 0)
+        owner_id = await db.ensure_user(pool, owner_tg_id)
+        try:
+            user_providers = await fetch_user_providers(pool, owner_id)
+        except Exception:
+            logger.exception("Failed to load custom publication providers")
         channel_db_id = await db.ensure_channel(
             pool, owner_id, str(chat_id), topic=normalized_topic, mode=normalized_mode
+        )
+        await db.update_channel_verification(
+            pool,
+            channel_db_id,
+            verified=True,
+            telegram_chat_id=int(verification["chatId"]),
+            title=verification.get("title"),
+            username=verification.get("username"),
+            can_post=True,
         )
         excluded_image_urls = await db.recent_image_urls(
             pool, channel_db_id, topic=normalized_topic, limit=config.recent_image_limit
         )
         settings = await db.get_channel_settings(pool, channel_db_id)
         policy = (settings or {}).get("image_policy") or "auto"
+        channel_context = settings or channel_context
 
     if image_mode_override in {"ai", "off", "auto"}:
         policy = image_mode_override
@@ -442,7 +643,9 @@ async def publish_custom_text(
         except Exception:
             logger.warning("Data URL decode failed, falling back to policy")
             image_payload, image_url, image_source = await _resolve_media(
-                normalized_topic, text, policy, excluded_image_urls
+                normalized_topic, text, policy, excluded_image_urls,
+                user_providers=user_providers,
+                on_ai_attempt=key_attempt_logger(pool) if use_db else None,
             )
     elif image_url_override:
         # Пользователь выбрал конкретное фото в предпросмотре
@@ -456,53 +659,76 @@ async def publish_custom_text(
         if not image_payload:
             logger.warning("Chosen image download failed, falling back to policy")
             image_payload, image_url, image_source = await _resolve_media(
-                normalized_topic, text, policy, excluded_image_urls
+                normalized_topic, text, policy, excluded_image_urls,
+                user_providers=user_providers,
+                on_ai_attempt=key_attempt_logger(pool) if use_db else None,
             )
     else:
         image_payload, image_url, image_source = await _resolve_media(
-            normalized_topic, text, policy, excluded_image_urls
+            normalized_topic, text, policy, excluded_image_urls,
+            user_providers=user_providers,
+            on_ai_attempt=key_attempt_logger(pool) if use_db else None,
+        )
+
+    publishing_post_id: int | None = None
+    if use_db and channel_db_id is not None:
+        publishing_post_id, _ = await db.insert_publishing_post(
+            pool,
+            channel_db_id,
+            topic=normalized_topic,
+            mode=normalized_mode,
+            text=text,
+            image_url=image_url,
+            image_source=image_source,
+            media_type="photo" if image_payload else None,
         )
 
     try:
-        message_id: int | None = None
         if image_payload:
             image_bytes, filename = image_payload
             sent = await bot.send_photo(
                 chat_id=chat_id,
                 photo=BufferedInputFile(image_bytes, filename=filename),
-                caption=_caption(text),
+                caption=_caption(text, channel_context),
                 parse_mode=ParseMode.HTML,
                 show_caption_above_media=False,
                 disable_notification=True,
             )
-            message_id = sent.message_id
         else:
             sent = await bot.send_message(
                 chat_id=chat_id,
-                text=_caption(text),
+                text=_text_message(text, channel_context),
                 parse_mode=ParseMode.HTML,
                 link_preview_options=LinkPreviewOptions(is_disabled=True),
                 disable_notification=True,
             )
-            message_id = sent.message_id
+        message_id, actual_chat_id, actual_title, message_link = _confirmed_message(sent, chat_id)
 
-        if use_db and channel_db_id is not None:
-            await db.add_published_post(
+        if use_db and publishing_post_id is not None:
+            await db.mark_post_published(
                 pool,
-                channel_db_id,
-                topic=normalized_topic,
-                mode=normalized_mode,
-                text=text,
-                image_url=image_url,
-                image_source=image_source,
-                telegram_message_id=message_id,
+                publishing_post_id,
+                message_id,
+                telegram_chat_id=actual_chat_id,
+                target_channel_title=actual_title,
+                telegram_message_link=message_link,
             )
         with_image = bool(image_payload)
         logger.info("Custom post sent to %s (image: %s)", chat_id, with_image)
-        return PublishResult(True, with_image, normalized_topic, "custom text published")
+        return PublishResult(
+            True, with_image, normalized_topic, "custom text published",
+            outcome="published", message_id=message_id, telegram_chat_id=actual_chat_id,
+            channel_title=actual_title, message_link=message_link,
+        )
     except Exception as exc:
         logger.exception("Custom text publish failed")
-        return PublishResult(False, bool(image_payload), normalized_topic, str(exc))
+        error_code = str(exc) if str(exc).startswith("telegram_") else "telegram_send_failed"
+        if use_db and publishing_post_id is not None:
+            try:
+                await db.mark_post_failed(pool, publishing_post_id, str(exc), error_code=error_code)
+            except Exception:
+                logger.exception("Failed to persist custom publication failure")
+        return PublishResult(False, bool(image_payload), normalized_topic, str(exc), error_code=error_code)
 
 
 async def _resolve_slot_topic(pool, channel_id: int, fallback_topic: str) -> str:
@@ -533,18 +759,53 @@ async def prepare_queued_post(item: dict) -> None:
     topic = await _resolve_slot_topic(pool, channel_id, _normalize_topic(item["topic"]))
     mode = normalize_mode(item["mode"], config)
     policy = item.get("image_policy") or "auto"
+    channel_settings = await db.get_channel_settings(pool, channel_id)
 
-    owner_telegram_id = next(iter(config.admin_user_ids), 0)
-    owner_id = await db.ensure_user(pool, owner_telegram_id)
+    owner_telegram_id = int(item["owner_telegram_id"])
+    owner_id = int(item["user_id"])
     avoid_texts = await db.recent_texts(pool, channel_id, topic=topic, mode=mode, limit=config.recent_post_limit)
     try:
         user_providers = await fetch_user_providers(pool, owner_id)
     except Exception:
         user_providers = []
 
+    async def _log_prepare_attempt(
+        provider_name: str,
+        model: str,
+        success: bool,
+        error: str | None,
+        duration_ms: int,
+        key_id: int | None,
+    ) -> None:
+        if key_id is not None:
+            await mark_key_used(
+                pool,
+                key_id,
+                None if success else (error or "generation_failed")[:120],
+            )
+        await log_usage(
+            pool,
+            user_id=owner_id,
+            channel_id=channel_id,
+            event_type="generation",
+            provider=provider_name,
+            model=model,
+            success=success,
+            error=error,
+            duration_ms=duration_ms,
+        )
+
     post_text = ""
     for _ in range(max(config.generation_attempts, 1)):
-        candidate = await generate_post(topic, config, mode, avoid_texts, user_providers=user_providers)
+        candidate = await generate_post(
+            topic,
+            config,
+            mode,
+            avoid_texts,
+            user_providers=user_providers,
+            on_attempt=_log_prepare_attempt,
+            style_profile=(channel_settings or {}).get("style_profile"),
+        )
         if candidate is None:
             break
         if not await db.has_text(pool, channel_id, candidate):
@@ -554,7 +815,8 @@ async def prepare_queued_post(item: dict) -> None:
 
     if not post_text:
         logger.warning("Pre-generation: all providers failed for schedule %s", item["schedule_id"])
-        await notify_owner(
+        await notify_user(
+            owner_telegram_id,
             "⚠️ Не удалось подготовить пост для очереди\n"
             f"Тема: {html.escape(topic)}\n"
             "Все AI-провайдеры недоступны. Проверьте ключи в разделе «API-ключи»."
@@ -563,12 +825,14 @@ async def prepare_queued_post(item: dict) -> None:
 
     image_url: str | None = None
     image_source: str | None = None
-    if policy == "ai" and ai_image_available(config):
+    if policy == "ai" and ai_image_available(config, user_providers):
         # AI-изображение генерируется в момент публикации (нет URL для предпросмотра)
         image_source = "ai_pending"
     elif policy != "off":
         excluded = await db.recent_image_urls(pool, channel_id, topic=topic, limit=config.recent_image_limit)
-        image = await get_science_photo(topic, config, excluded_urls=excluded)
+        image = await get_science_photo(
+            topic, config, excluded_urls=excluded, context=post_text, user_providers=user_providers
+        )
         if image:
             image_url = image.url
             image_source = image.source
@@ -588,44 +852,97 @@ async def prepare_queued_post(item: dict) -> None:
     logger.info("Queued post %s prepared for schedule %s (%s)", post_id, item["schedule_id"], topic)
 
     slot_time = str(item.get("post_time") or "")[:5]
-    await notify_owner(
+    await notify_user(
+        owner_telegram_id,
         f"📝 Пост подготовлен и ждёт в очереди\n"
         f"Слот: {slot_time} · Тема: {html.escape(topic)}\n"
         f"Откройте Mini App, чтобы посмотреть, поправить или отклонить его до публикации."
     )
 
 
-async def publish_prepared(post: dict, chat_id: str, image_policy: str) -> PublishResult:
+async def publish_prepared(post: dict, item: dict) -> PublishResult:
     """Публикует уже подготовленный пост из очереди (текст и медиа заданы)."""
     if bot is None:
         return PublishResult(False, False, post["topic"], "BOT_TOKEN is not configured")
 
     pool = await db.get_pool(config.database_url)
+    chat_id = item["chat_id"]
+    verification = await verify_channel_target(chat_id)
+    if not verification.get("ok"):
+        error_code = str(verification.get("error") or "channel_verification_failed")
+        await db.update_channel_verification(
+            pool, item["channel_id"], verified=False, can_post=False, error=error_code
+        )
+        await db.mark_post_failed(pool, post["id"], error_code, error_code=error_code)
+        return PublishResult(False, False, post["topic"], error_code, error_code=error_code)
+    await db.update_channel_verification(
+        pool,
+        item["channel_id"],
+        verified=True,
+        telegram_chat_id=int(verification["chatId"]),
+        title=verification.get("title"),
+        username=verification.get("username"),
+        can_post=True,
+    )
+    channel_context = (await db.get_channel_settings(pool, item["channel_id"])) or {}
+    try:
+        user_providers = await fetch_user_providers(pool, int(item["user_id"]))
+    except Exception:
+        logger.exception("Failed to load queued publication providers")
+        user_providers = []
     text = post["text"]
     image_url = post.get("image_url")
     image_source = post.get("image_source")
     media_type = post.get("media_type") or ("photo" if image_url else None)
 
     try:
-        message_id: int | None = None
+        attempt_id = await db.mark_post_publishing(pool, post["id"])
+        if attempt_id is None:
+            current_status = await db.post_status(pool, post["id"])
+            if current_status == "rejected":
+                return PublishResult(
+                    False, False, post["topic"], "slot cancelled by owner",
+                    outcome="cancelled", error_code="slot_cancelled",
+                )
+            return PublishResult(
+                False, False, post["topic"], "post is already being processed",
+                error_code="publication_not_claimed",
+            )
         with_image = False
 
         if media_type == "video" and image_url:
             sent = await bot.send_video(
                 chat_id=chat_id,
                 video=image_url,
-                caption=_caption(text),
+                caption=_caption(text, channel_context),
                 parse_mode=ParseMode.HTML,
                 disable_notification=True,
             )
-            message_id = sent.message_id
             with_image = True
         else:
             payload: tuple[bytes, str] | None = None
-            if image_source == "ai_pending" and ai_image_available(config):
-                payload = await generate_ai_image(post["topic"], text, config)
+            if image_source == "ai_pending":
+                if ai_image_available(config, user_providers):
+                    payload = await generate_ai_image(
+                        post["topic"], text, config,
+                        user_providers=user_providers,
+                        on_attempt=key_attempt_logger(pool),
+                    )
                 if payload:
                     image_source = "AI (Gemini)"
+                else:
+                    logger.info("AI image failed for queued post %s; falling back to stock", post["id"])
+                    excluded = await db.recent_image_urls(
+                        pool, item["channel_id"], topic=post["topic"], limit=config.recent_image_limit
+                    )
+                    image = await get_science_photo(
+                        post["topic"], config, excluded_urls=excluded, context=text,
+                        user_providers=user_providers,
+                    )
+                    if image:
+                        payload = await download_image(image, config)
+                        if payload:
+                            image_url, image_source = image.url, image.source
             elif image_url:
                 from image_fetcher import ImageResult
 
@@ -638,44 +955,60 @@ async def publish_prepared(post: dict, chat_id: str, image_policy: str) -> Publi
                 sent = await bot.send_photo(
                     chat_id=chat_id,
                     photo=BufferedInputFile(image_bytes, filename=filename),
-                    caption=_caption(text),
+                    caption=_caption(text, channel_context),
                     parse_mode=ParseMode.HTML,
                     show_caption_above_media=False,
                     disable_notification=True,
                 )
-                message_id = sent.message_id
                 with_image = True
             elif image_url:
                 # не удалось скачать — пробуем отправить по URL напрямую
                 sent = await bot.send_photo(
                     chat_id=chat_id,
                     photo=image_url,
-                    caption=_caption(text),
+                    caption=_caption(text, channel_context),
                     parse_mode=ParseMode.HTML,
                     disable_notification=True,
                 )
-                message_id = sent.message_id
                 with_image = True
             else:
                 sent = await bot.send_message(
                     chat_id=chat_id,
-                    text=_caption(text),
+                    text=_text_message(text, channel_context),
                     parse_mode=ParseMode.HTML,
                     link_preview_options=LinkPreviewOptions(is_disabled=True),
                     disable_notification=True,
                 )
-                message_id = sent.message_id
-
-        await db.mark_post_published(pool, post["id"], message_id)
+        message_id, actual_chat_id, actual_title, message_link = _confirmed_message(sent, chat_id)
+        await db.update_post_media(
+            pool,
+            post["id"],
+            image_url=image_url,
+            image_source=image_source,
+            media_type="video" if media_type == "video" else ("photo" if with_image else None),
+        )
+        await db.mark_post_published(
+            pool,
+            post["id"],
+            message_id,
+            telegram_chat_id=actual_chat_id,
+            target_channel_title=actual_title,
+            telegram_message_link=message_link,
+        )
         logger.info("Queued post %s published to %s (media: %s)", post["id"], chat_id, with_image)
-        return PublishResult(True, with_image, post["topic"], "published from queue")
+        return PublishResult(
+            True, with_image, post["topic"], "published from queue",
+            outcome="published", message_id=message_id, telegram_chat_id=actual_chat_id,
+            channel_title=actual_title, message_link=message_link,
+        )
     except Exception as exc:
         logger.exception("Queued post %s publish failed", post["id"])
         try:
-            await db.mark_post_failed(pool, post["id"], str(exc))
+            error_code = str(exc) if str(exc).startswith("telegram_") else "telegram_send_failed"
+            await db.mark_post_failed(pool, post["id"], str(exc), error_code=error_code)
         except Exception:
             logger.exception("Failed to mark post %s as failed", post["id"])
-        return PublishResult(False, False, post["topic"], str(exc))
+        return PublishResult(False, False, post["topic"], str(exc), error_code=error_code)
 
 
 async def notify_owner(text: str) -> None:
@@ -699,12 +1032,37 @@ async def notify_owner(text: str) -> None:
             logger.warning("Owner notification failed for %s", admin_id, exc_info=True)
 
 
+async def notify_user(telegram_id: int, text: str) -> None:
+    """Send an operational notice only to the channel owner."""
+    if bot is None or not telegram_id:
+        return
+    try:
+        await bot.send_message(
+            chat_id=telegram_id,
+            text=text,
+            parse_mode=ParseMode.HTML,
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+            disable_notification=False,
+        )
+    except Exception:
+        logger.warning("Owner notification failed for %s", telegram_id, exc_info=True)
+
+
 async def publish_scheduled(item: dict) -> PublishResult:
     """Публикация слота: пост из очереди либо свежая генерация."""
     pool = await db.get_pool(config.database_url)
     queued = await db.get_queued_post_for_slot(pool, item["schedule_id"], item["scheduled_at"])
-    if queued:
-        result = await publish_prepared(queued, item["chat_id"], item.get("image_policy") or "auto")
+    if queued and queued.get("status") == "rejected":
+        result = PublishResult(
+            False,
+            False,
+            queued["topic"],
+            "slot cancelled by owner",
+            outcome="cancelled",
+            error_code="slot_cancelled",
+        )
+    elif queued:
+        result = await publish_prepared(queued, item)
     else:
         topic = await _resolve_slot_topic(pool, item["channel_id"], _normalize_topic(item["topic"]))
         result = await publish_post(
@@ -713,19 +1071,33 @@ async def publish_scheduled(item: dict) -> PublishResult:
             mode=item["mode"],
             image_policy=item.get("image_policy"),
             schedule_id=item["schedule_id"],
+            scheduled_at=item["scheduled_at"],
+            owner_telegram_id=int(item["owner_telegram_id"]),
         )
 
     slot_time = str(item.get("post_time") or "")[:5]
     chat = html.escape(str(item.get("chat_id") or ""))
-    if result.ok:
-        await notify_owner(
-            f"✅ Пост по расписанию опубликован\n"
+    owner_telegram_id = int(item["owner_telegram_id"])
+    if result.outcome == "cancelled":
+        await notify_user(
+            owner_telegram_id,
+            f"⏹ Публикация слота отменена\n"
             f"Канал: {chat}\n"
+            f"Слот: {slot_time} · Тема: {html.escape(result.topic)}"
+        )
+    elif result.ok and result.message_id is not None:
+        link_line = f'\n<a href="{html.escape(result.message_link, quote=True)}">Открыть публикацию</a>' if result.message_link else ""
+        await notify_user(
+            owner_telegram_id,
+            f"✅ Пост по расписанию опубликован\n"
+            f"Канал: {html.escape(result.channel_title or chat)}\n"
             f"Слот: {slot_time} · Тема: {html.escape(result.topic)}\n"
             f"{'С изображением' if result.with_image else 'Без изображения'}"
+            f"{link_line}"
         )
     else:
-        await notify_owner(
+        await notify_user(
+            owner_telegram_id,
             f"⚠️ Пост по расписанию не вышел\n"
             f"Канал: {chat}\n"
             f"Слот: {slot_time} · Тема: {html.escape(result.topic)}\n"
@@ -927,9 +1299,9 @@ WATCHDOG_GRACE_MINUTES = 30  # сколько ждать после слота, 
 async def run_watchdog() -> None:
     """Сторож: если слот расписания прошёл, а пост не вышел — алерт владельцу.
 
-    Каждые 30 минут ищет слоты за последние сутки, помеченные в slot_runs
-    как failed, либо прошедшие слоты без публикации в канале в течение
-    30 минут после слота. Каждый проблемный слот алертится один раз.
+    Каждые 30 минут строит ожидаемые слоты за последние сутки из schedules,
+    включая те, для которых slot_runs вообще не был создан. Успешные и явно
+    отменённые владельцем слоты не считаются ошибкой.
     """
     if bot is None or not config.database_url:
         return
@@ -941,13 +1313,27 @@ async def run_watchdog() -> None:
         try:
             rows = await pool.fetch(
                 """
-                SELECT sr.schedule_id, sr.slot_key, sr.status, c.chat_id
-                FROM slot_runs sr
-                JOIN schedules s ON s.id = sr.schedule_id
+                SELECT s.id AS schedule_id,
+                       to_char(x.scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI') AS slot_key,
+                       COALESCE(sr.status, 'missing') AS status,
+                       c.chat_id, u.telegram_id AS owner_telegram_id
+                FROM schedules s
                 JOIN channels c ON c.id = s.channel_id
-                WHERE sr.created_at > now() - interval '24 hours'
-                  AND sr.created_at < now() - ($1 || ' minutes')::interval
-                  AND sr.status != 'done'
+                JOIN users u ON u.id = c.user_id
+                CROSS JOIN generate_series(0, 1) AS d(days_ago)
+                CROSS JOIN LATERAL (
+                    SELECT (
+                        ((now() AT TIME ZONE s.timezone)::date - d.days_ago::int) + s.post_time
+                    ) AT TIME ZONE s.timezone AS scheduled_at
+                ) x
+                LEFT JOIN slot_runs sr
+                  ON sr.schedule_id = s.id
+                 AND sr.slot_key = to_char(x.scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI')
+                WHERE s.is_active AND c.is_active AND c.is_verified AND c.bot_can_post
+                  AND (extract(isodow FROM x.scheduled_at AT TIME ZONE s.timezone)::int - 1) = ANY(s.days_of_week)
+                  AND x.scheduled_at > now() - interval '24 hours'
+                  AND x.scheduled_at < now() - ($1 || ' minutes')::interval
+                  AND COALESCE(sr.status, 'missing') NOT IN ('done', 'cancelled')
                 """,
                 str(WATCHDOG_GRACE_MINUTES),
             )
@@ -956,7 +1342,8 @@ async def run_watchdog() -> None:
                 if key in alerted:
                     continue
                 alerted.add(key)
-                await notify_owner(
+                await notify_user(
+                    int(row["owner_telegram_id"]),
                     f"🚨 Watchdog: слот {html.escape(row['slot_key'])} "
                     f"для канала {html.escape(str(row['chat_id']))} не завершился публикацией "
                     f"(статус: {html.escape(row['status'])}).\n"
@@ -986,25 +1373,148 @@ async def run_bot():
     logger.info("Bot starting. Channel: %s", config.channel_id)
     bridge_runner = None
     try:
-        async def _generate_preview(topic: str | None, mode: str) -> str | None:
+        async def _generate_preview(
+            topic: str | None,
+            mode: str,
+            *,
+            owner_telegram_id: int | None = None,
+            target_chat: str | None = None,
+            avoid_text: str | None = None,
+        ) -> str | None:
             normalized_topic = _normalize_topic(topic)
             normalized_mode = normalize_mode(mode, config)
-            return await generate_post(normalized_topic, config, normalized_mode)
+            avoid_texts: list[str] = []
+            user_providers: list[dict] = []
+            style_profile: dict | None = None
+            preview_pool = None
+            preview_owner_id: int | None = None
+            preview_channel_id: int | None = None
+            if config.database_url and owner_telegram_id:
+                preview_pool = await db.get_pool(config.database_url)
+                preview_owner_id = await db.ensure_user(preview_pool, owner_telegram_id)
+                try:
+                    user_providers = await fetch_user_providers(preview_pool, preview_owner_id)
+                except Exception:
+                    logger.exception("Failed to load preview providers, falling back to env keys")
+                if target_chat:
+                    preview_channel_id = await db.ensure_channel(
+                        preview_pool,
+                        preview_owner_id,
+                        target_chat,
+                        topic=normalized_topic,
+                        mode=normalized_mode,
+                    )
+                    avoid_texts = await db.recent_texts(
+                        preview_pool,
+                        preview_channel_id,
+                        topic=normalized_topic,
+                        mode=normalized_mode,
+                        limit=config.recent_post_limit,
+                    )
+                    settings = await db.get_channel_settings(preview_pool, preview_channel_id)
+                    style_profile = (settings or {}).get("style_profile")
 
-        async def _fetch_image(topic: str, excluded_urls: set[str]) -> dict | None:
-            image = await get_science_photo(topic, config, excluded_urls=excluded_urls)
+            async def _log_preview_attempt(
+                provider_name: str,
+                model: str,
+                success: bool,
+                error: str | None,
+                duration_ms: int,
+                key_id: int | None,
+            ) -> None:
+                if preview_pool is None or preview_owner_id is None:
+                    return
+                if key_id is not None:
+                    await mark_key_used(
+                        preview_pool,
+                        key_id,
+                        None if success else (error or "generation_failed")[:120],
+                    )
+                await log_usage(
+                    preview_pool,
+                    user_id=preview_owner_id,
+                    channel_id=preview_channel_id,
+                    event_type="generation",
+                    provider=provider_name,
+                    model=model,
+                    success=success,
+                    error=error,
+                    duration_ms=duration_ms,
+                )
+            if avoid_text and avoid_text not in avoid_texts:
+                avoid_texts.insert(0, avoid_text)
+            return await generate_post(
+                normalized_topic,
+                config,
+                normalized_mode,
+                avoid_texts,
+                user_providers=user_providers,
+                on_attempt=_log_preview_attempt,
+                style_profile=style_profile,
+            )
+
+        async def _fetch_image(
+            topic: str,
+            excluded_urls: set[str],
+            context: str | None = None,
+            *,
+            owner_telegram_id: int | None = None,
+        ) -> dict | None:
+            user_providers: list[dict] = []
+            if config.database_url and owner_telegram_id:
+                pool = await db.get_pool(config.database_url)
+                owner_id = await db.ensure_user(pool, owner_telegram_id)
+                try:
+                    user_providers = await fetch_user_providers(pool, owner_id)
+                except Exception:
+                    logger.exception("Failed to load image-search providers")
+            image = await get_science_photo(
+                topic,
+                config,
+                excluded_urls=excluded_urls,
+                context=context,
+                user_providers=user_providers,
+            )
             if not image:
                 return None
-            return {"url": image.url, "source": image.source}
+            return {
+                "url": image.url,
+                "source": image.source,
+                "query": image.query,
+                "title": image.title,
+                "requiredTerms": list(image.required_terms),
+            }
 
-        async def _ai_image(topic: str, text: str):
+        async def _ai_image(
+            topic: str,
+            text: str,
+            *,
+            owner_telegram_id: int | None = None,
+        ):
             """AI-фото для предпросмотра. Возвращает bytes+имя, None или код ошибки."""
-            if not ai_image_available(config):
+            user_providers: list[dict] = []
+            attempt_logger = None
+            if config.database_url and owner_telegram_id:
+                pool = await db.get_pool(config.database_url)
+                owner_id = await db.ensure_user(pool, owner_telegram_id)
+                try:
+                    user_providers = await fetch_user_providers(pool, owner_id)
+                except Exception:
+                    logger.exception("Failed to load AI-image providers")
+                attempt_logger = key_attempt_logger(pool)
+            if not ai_image_available(config, user_providers):
                 return "no_key"
-            return await generate_ai_image(topic, text, config)
+            return await generate_ai_image(
+                topic, text, config, user_providers=user_providers, on_attempt=attempt_logger
+            )
 
         bridge_runner = await start_bridge(
-            _generate_preview, publish_post, _fetch_image, publish_custom_text, _ai_image
+            _generate_preview,
+            publish_post,
+            _fetch_image,
+            publish_custom_text,
+            _ai_image,
+            verify_channel_target,
         )
         asyncio.create_task(periodic_posting())
         await start_db_scheduler()
@@ -1025,6 +1535,16 @@ async def run_bot():
                 BotCommand(command="test", description="Проверить конфигурацию"),
             ]
         )
+        if config.web_app_url:
+            menu_button = MenuButtonWebApp(
+                text="Открыть панель",
+                web_app=WebAppInfo(url=config.web_app_url),
+            )
+            for admin_user_id in config.admin_user_ids:
+                await bot.set_chat_menu_button(
+                    chat_id=admin_user_id,
+                    menu_button=menu_button,
+                )
         await dp.start_polling(bot)
     finally:
         if bridge_runner is not None:

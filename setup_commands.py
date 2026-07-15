@@ -81,17 +81,52 @@ async def _current_channel(pool, message: types.Message) -> dict | None:
     selected = _selected_channel.get(admin_id)
     if selected:
         for ch in channels:
-            if ch["id"] == selected:
+            if ch["id"] == selected and ch["is_active"] and ch.get("is_verified") and ch.get("bot_can_post"):
                 return ch
     for ch in channels:
-        if ch["is_active"]:
+        if ch["is_active"] and ch.get("is_verified") and ch.get("bot_can_post"):
             return ch
-    return channels[0]
+    return None
+
+
+async def _verify_channel(message: types.Message, target: str) -> dict:
+    """Authoritatively verify a Telegram channel before persisting it."""
+    if not db.is_valid_channel_target(target):
+        return {"ok": False, "error": "invalid_publication_target"}
+    try:
+        chat = await message.bot.get_chat(target)
+    except Exception:
+        logger.warning("Channel lookup failed for %s", target, exc_info=True)
+        return {"ok": False, "error": "channel_not_found"}
+    chat_type = str(getattr(getattr(chat, "type", ""), "value", getattr(chat, "type", ""))).lower()
+    if chat_type != "channel":
+        return {"ok": False, "error": "target_not_channel"}
+    try:
+        me = await message.bot.get_me()
+        member = await message.bot.get_chat_member(chat.id, me.id)
+    except Exception:
+        logger.warning("Channel permission check failed for %s", target, exc_info=True)
+        return {"ok": False, "error": "permission_check_failed"}
+    status = str(getattr(getattr(member, "status", ""), "value", getattr(member, "status", ""))).lower()
+    is_owner = status in {"creator", "owner"}
+    if not (is_owner or status == "administrator"):
+        return {"ok": False, "error": "bot_not_admin"}
+    if not (is_owner or bool(getattr(member, "can_post_messages", False))):
+        return {"ok": False, "error": "bot_cannot_post"}
+    return {
+        "ok": True,
+        "chat_id": int(chat.id),
+        "title": getattr(chat, "title", None),
+        "username": getattr(chat, "username", None),
+    }
 
 
 def _channel_line(index: int, ch: dict, current_id: int | None) -> str:
     marker = "→ " if ch["id"] == current_id else "   "
-    status = "" if ch["is_active"] else " (выключен)"
+    if not ch.get("is_verified") or not ch.get("bot_can_post"):
+        status = " (не проверен)"
+    else:
+        status = "" if ch["is_active"] else " (выключен)"
     title = f" · {html.escape(ch['title'])}" if ch.get("title") else ""
     return (
         f"{marker}{index}. <b>{html.escape(str(ch['chat_id']))}</b>{title}{status}\n"
@@ -184,13 +219,40 @@ async def cmd_addchannel(message: types.Message, command: CommandObject):
         return
     chat_ref = args[0].strip()
     topic = args[1].strip() if len(args) > 1 else "наука"
-    if not (chat_ref.startswith("@") or chat_ref.lstrip("-").isdigit()):
-        await message.answer("Укажите @username канала или его числовой ID (-100...).")
+    if not db.is_valid_channel_target(chat_ref):
+        await message.answer("Укажите @username канала или ID канала, начинающийся с -100. Личный Telegram ID использовать нельзя.")
+        return
+
+    verification = await _verify_channel(message, chat_ref)
+    if not verification.get("ok"):
+        errors = {
+            "channel_not_found": "Канал не найден или бот ещё не добавлен в него.",
+            "target_not_channel": "Указанный адрес принадлежит не Telegram-каналу.",
+            "bot_not_admin": "Добавьте бота администратором канала.",
+            "bot_cannot_post": "Выдайте боту право публиковать сообщения.",
+            "permission_check_failed": "Не удалось проверить права бота. Повторите позже.",
+        }
+        await message.answer(errors.get(str(verification.get("error")), "Канал не прошёл проверку."))
         return
 
     pool = await _pool()
     owner = await _owner_id(pool, message)
-    channel_id = await db.ensure_channel(pool, owner, chat_ref, topic=topic)
+    channel_id = await db.ensure_channel(
+        pool,
+        owner,
+        chat_ref,
+        title=verification.get("title"),
+        topic=topic,
+    )
+    await db.update_channel_verification(
+        pool,
+        channel_id,
+        verified=True,
+        telegram_chat_id=verification.get("chat_id"),
+        title=verification.get("title"),
+        username=verification.get("username"),
+        can_post=True,
+    )
     admin_id = message.from_user.id if message.from_user else 0
     _selected_channel[admin_id] = channel_id
     await message.answer(
@@ -213,6 +275,13 @@ async def cmd_usechannel(message: types.Message, command: CommandObject):
         ch = channels[idx - 1]
     except (ValueError, IndexError):
         await message.answer("Формат: <code>/usechannel номер</code> — номер из /channels", parse_mode="HTML")
+        return
+    if not ch.get("is_verified") or not ch.get("bot_can_post") or not ch.get("is_active"):
+        await message.answer(
+            "Этот канал не готов к публикации. Повторите <code>/addchannel @канал</code>, "
+            "чтобы заново проверить права бота.",
+            parse_mode="HTML",
+        )
         return
     admin_id = message.from_user.id if message.from_user else 0
     _selected_channel[admin_id] = ch["id"]
@@ -321,7 +390,8 @@ async def cmd_addtime(message: types.Message, command: CommandObject):
     slot_mode: str | None = None
     topic_parts = parts[1:]
     if topic_parts and normalize_mode(topic_parts[-1]) in available_modes() and topic_parts[-1].lower() in (
-        "normal", "funny", "wow", "strict", "обычный", "смешной", "интересный", "строгий",
+        "normal", "short", "long", "funny", "wow", "strict",
+        "обычный", "короткий", "лонгрид", "смешной", "интересный", "строгий",
     ):
         slot_mode = normalize_mode(topic_parts[-1])
         topic_parts = topic_parts[:-1]

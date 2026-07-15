@@ -1,394 +1,173 @@
 # AutoPostingTG
 
-Telegram-бот для автопостинга научно-популярных фактов: генерирует короткий факт, подбирает тематическое изображение и публикует пост в Telegram-канал.
+Готовый к передаче single-owner продукт для подготовки и безопасной публикации
+научно-популярного контента в Telegram. Главный интерфейс — Telegram Mini App;
+Python-бот, bridge и планировщик постоянно работают на Railway/Docker.
 
-## Функционал коротко
+## Что умеет
 
-| Функция | Что делает | Где настраивать |
-|---|---|---|
-| Автопостинг по расписанию | Ежедневные слоты ЧЧ:ММ, у каждого — своя тема и режим | Mini App «Расписание» / `/addtime` |
-| Генерация текста (AI) | Ротация провайдеров: Groq, Mistral, Gemini, NVIDIA, OpenRouter, custom, v0, локальный fallback | `.env` (`LLM_PROVIDER_ORDER`) / «Ещё» → «API-ключи» |
-| Очередь предпросмотра | Пост готовится за час до слота: одобрить / отредактировать / отклонить | Mini App «Очередь» |
-| Ручной генератор | Тема + режим → предпросмотр в виде Telegram-поста → публикация | Mini App «Генератор» |
-| Фото к постам | AI переводит тему в англ. запросы → Pixabay, Pexels, Openverse, Wikimedia, NASA, Unsplash; либо AI-изображение (Gemini); либо без фото | Карточка канала («медиа-политика») / `/setmedia` |
-| Мультиканальность | Несколько каналов, у каждого свои темы, расписание и медиа | «Ещё» → «Каналы» / `/addchannel` |
-| Пул тем | Ротация тем без повторов | Карточка канала / `/topics` |
-| История и шаблоны | История генераций (повторное использование), шаблоны «тема+режим» в 2 тапа | «Генератор» → «История»; «Ещё» → «Шаблоны постов» |
-| Статистика | Подписчики (почти realtime + график), активность постинга, провайдеры | Mini App «Дашборд» и «Ещё» → «Статистика» |
-| Уведомления | Публикации, готовые посты в очереди, ошибки — в личку владельцу | Автоматически |
-| Надёжность | Защита от дублей (slot_runs), ретраи публикации, watchdog-алерты | Автоматически; `PUBLISH_RETRIES` в `.env` |
+- несколько Telegram-каналов с отдельными темами, стилями, расписаниями и медиа-политикой;
+- проверка, что цель действительно является каналом, а бот — администратор с правом публикации;
+- одиночная и пакетная генерация 2–5 постов; пакетный режим всегда выключен по умолчанию;
+- добавление выбранных пакетных черновиков в Queue без автопубликации;
+- перегенерация текста с защитой от повторов и сохранением старого варианта при ошибке;
+- режимы `normal`, `short`, `long`, `funny`, `wow`, `strict` с серверной проверкой формата;
+- стоковые изображения из Pexels, Pixabay, Openverse, Wikimedia, NASA и Unsplash;
+- точный AI-план поиска фото: объект, важная деталь и обязательные термины;
+- AI-изображения Gemini с ротацией ключей и переходом на сток при сбое;
+- Queue: редактирование, перегенерация, замена фото, одобрение слота, отмена и ручный retry;
+- честные состояния `queued → publishing → published|failed` с Telegram `message_id` и ссылкой;
+- атомарный захват слотов, watchdog пропущенных публикаций и уведомления владельцу;
+- зашифрованное AES-256-GCM хранилище пользовательских API-ключей;
+- реальные разделы Style, Media, Providers, Settings, History и Stats;
+- DB rate limiting дорогих AI/image-запросов между всеми Vercel-инстансами.
 
-Минимальная настройка: `.env` → `BOT_TOKEN`, `CHANNEL_ID`, `DATABASE_URL`, один AI-ключ (например `GROQ_API_KEY`) → `python main.py` → `/test` в чате с ботом. Остальное настраивается из Mini App или командами (см. ниже).
+Если все LLM-провайдеры недоступны, публикация **не происходит** и возвращается
+явная ошибка. Система не подставляет выдуманный локальный текст вместо AI-ответа.
 
-## Реализовано в Mini App
-
-- Мультиканальность: несколько каналов с индивидуальными темами, расписанием и медиа-политикой («Ещё» → «Каналы»).
-- Темы и режим текста для каждого слота расписания («утром — факты, вечером — юмор»).
-- Пул тем с ротацией без повторов (настраивается в карточке канала).
-- Очередь предпросмотра: посты генерируются заранее, их можно одобрить, отредактировать или отклонить до публикации (вкладка «Очередь»).
-- Медиа-политика канала: фото включены по умолчанию, AI-генерация изображений (при наличии ключа Gemini) или полностью без фото. Своё фото/видео можно прикрепить по URL в очереди.
-- Статистика: подписчики отслеживаются ежеминутно (запись в БД — при изменении числа + часовой heartbeat), активность постинга, разбивка по темам, использование провайдеров.
-- Редактирование перед публикацией: текст из предпросмотра генератора можно поправить и опубликовать именно отредактированную версию.
-- Уведомления в личку: бот пишет владельцу о публикации поста по расписанию, о подготовленном посте в очереди и об ошибках (провайдеры недоступны, публикация не вышла).
-
-## Настройка через команды бота
-
-Всё, что настраивается в Mini App, можно настроить и командами в чате с ботом (нужен `DATABASE_URL`; `.env` остаётся источником значений по умолчанию):
-
-| Команда | Что делает |
-|---|---|
-| `/setup` | Обзор текущей настройки: канал, тема, режим, медиа, расписание, пул тем |
-| `/channels` | Список каналов (→ отмечен выбранный для настройки) |
-| `/addchannel @канал [тема]` | Добавить канал и выбрать его |
-| `/usechannel N` | Переключить канал для команд настройки |
-| `/settopic <тема>` | Тема канала по умолчанию |
-| `/setmode <режим>` | Режим текста: normal / funny / wow / strict |
-| `/setmedia auto\|ai\|off` | Медиа-политика: стоковые фото / AI-изображения / без фото |
-| `/times` | Показать расписание |
-| `/addtime ЧЧ:ММ [тема] [режим]` | Добавить слот (тема и режим слота — опциональны) |
-| `/deltime ЧЧ:ММ` | Удалить слот |
-| `/topics` | Пул тем с ротацией без повторов |
-| `/addtopic <тема>` / `/deltopic N` | Управление пулом тем |
-
-Пример быстрого старта в чате с ботом:
+## Архитектура
 
 ```text
-/addchannel @my_science_channel космос
-/addtime 09:00
-/addtime 19:30 история wow
-/addtopic глубокий океан
-/setup
+Telegram Mini App (Next.js 16, Vercel)
+        │ signed initData + HTTPS
+        ▼
+Python bridge / bot (aiogram, Railway или Docker)
+        │
+        ├── Telegram Bot API
+        ├── LLM и image providers
+        └── Neon/Postgres ← Mini App API
 ```
 
-## Тест через v0 API
+- `app/`, `components/`, `lib/` — Mini App и её authenticated API routes;
+- `main.py`, `bridge.py`, `scheduler.py`, `db.py` — бот и публикационный контур;
+- `ai_gen.py`, `ai_image.py`, `image_fetcher.py` — генерация и медиа;
+- `migrations/` — только additive PostgreSQL-миграции;
+- `tests/`, `tests-web/` — Python и Mini App regression-тесты.
 
-Для проверки цепочки «ключ → генерация → публикация» можно использовать [v0 Model API](https://v0.app/settings/api-keys) (OpenAI-совместимый):
+## Быстрый локальный запуск
 
-- через Mini App: «Ещё» → «API-ключи» → провайдер «v0 (Vercel)» — вставьте ключ `v0:...`;
-- или через `.env`:
-
-```env
-V0_API_KEY=v0:...
-V0_MODELS=v0-1.5-md
-```
-
-Учтите: модели v0 оптимизированы под код, качество текстов постов будет ниже, чем у Gemini/Groq — используйте для теста, а не для продакшена.
-
-## Продакшен-деплой бота
-
-Mini App (Next.js) деплоится на Vercel кнопкой Publish. Python-бот должен работать на сервере 24/7 — два готовых варианта:
-
-### Вариант A: Docker (рекомендуется)
-
-```bash
-docker build -f Dockerfile.bot -t autoposting-bot .
-docker run -d --name autoposting-bot --restart unless-stopped --env-file .env autoposting-bot
-# логи: docker logs -f autoposting-bot
-```
-
-`--restart unless-stopped` перезапускает бота при падении и после перезагрузки сервера. Встроенный healthcheck следит за bridge.
-
-### Вариант B: systemd (VPS без Docker)
-
-Готовый юнит лежит в `deploy/autoposting-bot.service` (инструкция по установке — в комментариях внутри файла). Автоперезапуск при падении, непривилегированный пользователь, логи через `journalctl -u autoposting-bot -f`.
-
-### Надёжность публикаций (встроено)
-
-- **Идемпотентность слотов**: каждый слот расписания атомарно «занимается» в БД (таблица `slot_runs`) — рестарт бота или случайный запуск второго экземпляра не приводит к дублю поста.
-- **Ретраи**: публикация повторяется до 3 раз с паузами 20/40 секунд при сетевых сбоях (настраивается `PUBLISH_RETRIES`).
-- **Watchdog**: каждые 30 минут бот проверяет, что все слоты за сутки завершились публикацией; если слот «завис» или упал — владелец получает алерт в личку.
-- **Уведомления в личку**: публикации, подготовленные посты в очереди, ошибки провайдеров.
-
-### Чеклист перед продакшеном
-
-1. `ADMIN_USER_IDS` заполнен (иначе командами может пользоваться кто угодно).
-2. `BRIDGE_SECRET` — длинная случайная строка (например, `openssl rand -hex 32`); тот же секрет в env Vercel-проекта.
-3. `BRIDGE_PORT` не проброшен наружу (бот и так ходит в Telegram сам; Mini App ходит на bridge только с секретом).
-4. `DATABASE_URL` указывает на Neon (там же живёт Mini App). Бэкапы: в Neon включён point-in-time restore.
-5. Проверка после запуска: `/test` в чате с ботом + «Система активна» в дашборде Mini App.
-
-## Демонстрация
-
-> Скриншоты нужно положить в `docs/screenshots/`. Имена ниже уже подготовлены под README.
-
-### `/preview`
-
-![Preview command](docs/screenshots/preview.png)
-
-Команда отправляет тестовый пост в личный чат с ботом. Используется для проверки текста, картинки, режима и ссылок перед публикаци��й в канал.
-
-```text
-/preview космос
-/preview funny деревья
-/preview wow япония
-```
-
-### `/menu`
-
-![Menu buttons](docs/screenshots/menu.png)
-
-Команда включает кнопки Telegram-меню. Кнопки используют `DEFAULT_TOPIC` и `DEFAULT_MODE`, поэтому для точной темы лучше писать команду вручную.
-
-Кнопки:
-
-- `🔎 Preview` - тестовый пост в личный чат.
-- `🚀 Post` - публикация в канал.
-- `⚙️ Test` - проверка конфигурации.
-- `🎛 Modes` - список режимов генерации.
-- `❓ Help` - справка.
-
-```text
-/menu
-```
-
-### `/post`
-
-![Post command](docs/screenshots/post.png)
-
-Команда публикует готовый пост в Telegram-канал, указанный в `CHANNEL_ID`.
-
-```text
-/post космос
-/post funny деревья
-/post strict биология
-```
-
-### `/test`
-
-![Test command](docs/screenshots/test.png)
-
-Команда показывает текущую конфигурацию: включён ли Telegram proxy, какие LLM-провайдеры доступны, какие image API подключены и какой режим используется по умолчанию.
-
-```text
-/test
-```
-
-## Работает ли без VPN
-
-Коротко: **в России без VPN/proxy проект, скорее всего, не будет работать стабильно**.
-
-Причина: бот должен подключаться к `api.telegram.org`, а также к внешним LLM и image API. В тестовой среде прямое подключение к Telegram Bot API падало по timeout, поэтому был добавлен proxy-режим.
-
-Проект поддерживает оба варианта:
-
-- **Без VPN/proxy**: работает, если с вашей сети доступны `api.telegram.org`, LLM API и image API.
-- **С VPN/proxy**: рекомендуемый режим для РФ. Укажите proxy в `.env`.
-
-Пример для локального HTTP proxy:
-
-```env
-TELEGRAM_PROXY_URL=http://127.0.0.1:10809
-OUTBOUND_PROXY_URL=http://127.0.0.1:10809
-```
-
-Пример для SOCKS5:
-
-```env
-TELEGRAM_PROXY_URL=socks5://127.0.0.1:10808
-OUTBOUND_PROXY_URL=socks5://127.0.0.1:10808
-```
-
-`TELEGRAM_PROXY_URL` используется для Telegram. `OUTBOUND_PROXY_URL` используется для LLM и image API. Если `OUTBOUND_PROXY_URL` пустой, бот использует `TELEGRAM_PROXY_URL`.
-
-## Установка
-
-1. Склонировать репозиторий:
-
-```powershell
-git clone https://github.com/vladkorkishkooff-tech/AutoPostingTG.git
-cd AutoPostingTG
-```
-
-2. Создать виртуальное окружение:
+Требуются Python 3.12, Node.js 22+, pnpm 11.7 и PostgreSQL/Neon.
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-```
-
-3. Установить зависимости:
-
-```powershell
-python -m pip install -r requirements.txt
-```
-
-4. Создать `.env`:
-
-```powershell
+python -m pip install -r requirements-dev.txt
+pnpm install --frozen-lockfile
 Copy-Item .env.example .env
-```
-
-5. Заполнить минимум:
-
-```env
-BOT_TOKEN=токен_бота_из_BotFather
-CHANNEL_ID=@username_канала
-CHANNEL_URL=https://t.me/username_канала
-```
-
-6. Добавить бота администратором Telegram-канала с правом публикации.
-
-7. Запустить:
-
-```powershell
+python migrate.py
+python production_check.py
 python main.py
 ```
 
-8. Проверить в Telegram:
+Mini App в отдельном терминале:
 
-```text
-/test
-/preview космос
-/post космос
+```powershell
+pnpm dev
 ```
 
-## Бесплатный и платный путь
+`ALLOW_DEV_AUTH=1` допустим только локально вместе с `NODE_ENV=development`.
+В production он игнорируется и должен отсутствовать.
 
-Этот проект показывает **бесплатный путь к автопостингу**: бесплатные или условно бесплатные LLM API, бесплатные image API, fallback-логика и proxy для обхода сетевых ограничений.
+## Обязательная production-конфигурация
 
-Минус бесплатного пути: он сложнее в настройке и менее стабилен. Возможны лимиты, `403/429`, недоступность моделей, нестабильные image API и необходимость VPN/proxy.
-
-Более удобный платный путь:
-
-- Использовать стабильные платные модели: Gemini, OpenAI, Claude, Mistral, платный OpenRouter или другие API.
-- Подключить платный image provider или заранее подготовленную медиабазу.
-- Разместить бота на VPS в регионе, где Telegram Bot API и выбранные AI API доступны без локального VPN.
-
-Платный вариант проще в эксплуатации: меньше fallback-ошибок, выше качество текста, стабильнее генерация и меньше ручной настройки сети.
-
-В `.env.example` есть закомментированный блок “Платный путь”. Его можно раскомментировать, вставить свои ключи и поднять нужный провайдер выше в `LLM_PROVIDER_ORDER`.
-
-## Настройка API
-
-Бот работает даже без внешнего LLM API: если все модели недоступны, включается локальный fallback с готовыми фактами.
-
-Рекомендуемый бесплатный старт:
-
-```env
-GROQ_API_KEY=...
-GROQ_MODELS=llama-3.1-8b-instant,llama-3.3-70b-versatile,gemma2-9b-it,qwen/qwen3-32b
-LLM_PROVIDER_ORDER=groq,nvidia,openrouter,local
-```
-
-Цепочка работает слева направо. Если одна модель вернула лимит, `403`, `429` или сетевую ошибку, бот переходит к следующей модели или провайдеру.
-
-Изображения:
-
-```env
-NASA_API_KEY=DEMO_KEY
-PIXABAY_API_KEY=
-PEXELS_API_KEY=
-UNSPLASH_ACCESS_KEY=
-```
-
-Если все image API недоступны, бот создаёт простую тематическую fallback-картинку без текста.
-
-## Защита от повторов
-
-Бот ведёт локальную историю публикаций в `data/content_history.json`. Файл не коммитится в GitHub, потому что это runtime-состояние конкретного запуска.
-
-История используется для двух вещей:
-
-- не повторять недавние тексты по той же теме и режиму;
-- не использовать недавно отправленные URL изображений по той же теме.
-
-Настройки:
-
-```env
-HISTORY_FILE=data/content_history.json
-HISTORY_LIMIT=500
-RECENT_POST_LIMIT=40
-RECENT_IMAGE_LIMIT=60
-GENERATION_ATTEMPTS=4
-```
-
-Если посты всё ещё повторяются, увеличьте `RECENT_POST_LIMIT` и `GENERATION_ATTEMPTS`. Если повторяются фотографии, увеличьте `RECENT_IMAGE_LIMIT`.
-
-## Режимы постов
-
-Поддерживаются режимы:
-
-- `normal` / `обычный` - нейтральный короткий факт.
-- `funny` / `смешной` - факт с лёгкой иронией.
-- `wow` / `интересный` - факт с акцентом на удивление.
-- `strict` / `строгий` - сухой информативный стиль.
-
-Примеры:
-
-```text
-/preview normal космос
-/preview funny деревья
-/preview wow япония
-/preview strict биология
-```
-
-Режим по умолчанию:
-
-```env
-DEFAULT_MODE=normal
-```
-
-## Стиль под эталонный пост
-
-Для портфолио и реального ведения канала не обязательно сразу fine-tune модель. В проекте уже есть быстрый способ “обучить” стиль через эталон в prompt:
-
-```env
-POST_STYLE_EXAMPLE=🤬 В японском языке нет ругательств сильнее, чем «дурак» и «идиот»
-```
-
-Модель не копирует этот текст буквально. Она использует его как ориентир по длине, плотности и подаче.
-
-Когда появится набор эталонов, можно собрать датасет:
-
-```jsonl
-{"messages":[{"role":"user","content":"Тема: японский язык. Режим: normal"},{"role":"assistant","content":"🤬 В японском языке нет ругательств сильнее, чем «дурак» и «идиот»"}]}
-{"messages":[{"role":"user","content":"Тема: деревья. Режим: wow"},{"role":"assistant","content":"🌲 Годичные кольца дерева отражают условия роста: широкие появляются в благоприятные годы, узкие — при стрессе или засухе"}]}
-```
-
-Где делать настоящее fine-tuning:
-
-- [Mistral Fine-tuning](https://docs.mistral.ai/capabilities/finetuning/text_vision_finetuning/) - fine-tuning через AI Studio или API, датасет в JSONL.
-- [Hugging Face TRL SFTTrainer](https://huggingface.co/docs/trl/main/sft_trainer) - самостоятельное supervised fine-tuning open-source моделей, например Qwen/Llama.
-- [OpenAI fine-tuning guide](https://help.openai.com/en/articles/11162441-how-can-i-get-started-with-fine-tuning) - fine-tuning через OpenAI API, если доступен аккаунт и регион.
-
-Практичный путь для этого проекта: сначала собрать 50-200 хороших постов, затем использовать их либо как `POST_STYLE_EXAMPLE`/few-shot prompt, либо как JSONL-датасет для fine-tuning.
-
-## Основные настройки `.env`
+Минимум:
 
 ```env
 BOT_TOKEN=
 CHANNEL_ID=@your_channel
-CHANNEL_URL=https://t.me/your_channel
-
-TELEGRAM_PROXY_URL=
-OUTBOUND_PROXY_URL=
-
-DEFAULT_TOPIC=наука
-DEFAULT_MODE=normal
-POST_STYLE_EXAMPLE=🤬 В японском языке нет ругательств сильнее, чем «дурак» и «идиот»
-
-LLM_PROVIDER_ORDER=groq,nvidia,openrouter,local
-POST_INTERVAL_HOURS=24
-POST_ON_STARTUP=false
-DISABLE_PERIODIC_POSTING=false
-ADMIN_USER_IDS=
+ADMIN_USER_IDS=123456789
+DATABASE_URL=postgresql://...
+KEYS_ENCRYPTION_SECRET=<отдельный секрет не короче 32 символов>
+BRIDGE_SECRET=<другой секрет не короче 32 символов>
+WEB_APP_URL=https://your-mini-app.vercel.app
 ```
 
-Если `ADMIN_USER_IDS` пустой, командами может пользоваться любой пользователь, который написал боту. Для реального канала лучше указать Telegram user id администраторов:
+`CHANNEL_ID` принимает только `@channel_username` или Telegram channel ID,
+начинающийся с `-100`. Личный Telegram ID не является каналом и будет отклонён.
+
+Добавьте хотя бы один рабочий LLM key через Mini App или `.env`. Для Gemini
+можно задать несколько ключей через запятую:
 
 ```env
-ADMIN_USER_IDS=123456789,987654321
+GEMINI_API_KEYS=first_key,second_key
+GEMINI_MODELS=gemini-3.5-flash
+LLM_PROVIDER_ORDER=gemini,groq,mistral,openrouter,custom
 ```
 
-## Структура проекта
+Ключи изображений:
 
-```text
-main.py              # Telegram-бот, команды, публикация
-config.py            # Загрузка и нормализация .env
-ai_gen.py            # LLM-провайдеры, режимы, style example, local fallback
-image_fetcher.py     # Поиск и скачивание изображений, fallback-картинка
-content_history.py   # История постов и изображений для защиты от повторов
-requirements.txt     # Зависимости
-.env.example         # Шаблон конфигурации
-docs/screenshots/    # Скриншоты для README
+```env
+PEXELS_API_KEY=
+PIXABAY_API_KEY=
+UNSPLASH_ACCESS_KEY=
+NASA_API_KEY=DEMO_KEY
 ```
+
+## Docker / Railway
+
+```powershell
+docker compose build bot
+docker compose up -d bot
+docker compose logs -f bot
+```
+
+Контейнер запускается непривилегированным пользователем, выполняет
+`production_check.py`, применяет миграции под advisory lock и только затем
+стартует бота. На Railway публичный HTTPS bridge использует системный `PORT`;
+локально порт не публикуется без отдельного compose override.
+
+Подробности: [DEPLOY.md](DEPLOY.md). Передача покупателю: [SALE_HANDOFF.md](SALE_HANDOFF.md).
+
+## Команды бота
+
+| Команда | Назначение |
+|---|---|
+| `/test` | безопасная диагностика конфигурации |
+| `/preview [режим] <тема>` | приватный предпросмотр владельцу |
+| `/post [режим] <тема>` | намеренная публикация в выбранный канал |
+| `/channels`, `/addchannel`, `/usechannel` | управление каналами |
+| `/times`, `/addtime`, `/deltime` | расписание |
+| `/topics`, `/addtopic`, `/deltopic` | пул тем |
+| `/settopic`, `/setmode`, `/setmedia` | настройки текущего канала |
+
+`/addchannel` принимает только `@канал` или `-100...` и проверяет права бота до записи.
+
+## Quality gates
+
+```powershell
+python -m pip install -r requirements-dev.txt
+python -m pip check
+python -m compileall -q main.py bridge.py config.py db.py migrate.py scheduler.py setup_commands.py ai_gen.py ai_image.py image_fetcher.py user_keys.py content_history.py production_check.py
+python -m pytest -q
+python production_check.py
+pnpm install --frozen-lockfile
+pnpm lint
+pnpm typecheck
+pnpm test:web
+pnpm build
+pnpm audit --prod --audit-level high
+docker compose build bot
+```
+
+CI дополнительно поднимает чистый PostgreSQL, дважды запускает миграции,
+проверяет Docker-зависимости и сканирует Git на секреты.
+
+## Обязательная приёмка перед включением расписания
+
+1. `/test` в личном чате с ботом.
+2. `/preview космос` — результат приходит только владельцу.
+3. Подключение отдельного тестового канала и проверка прав бота.
+4. Одна явно подтверждённая публикация; открыть сохранённую Telegram-ссылку.
+5. Один слот через 5–10 минут; сверить канал, `posts`, `slot_runs`, уведомление и Stats.
+6. Перезапуск Railway; убедиться, что дубль не появился.
+
+Не запускайте два bot worker с одним `BOT_TOKEN` до проверки владения
+планировщиком. Не переносите `.env`, production-дампы или ключи продавца в Git.
+
+## Ограничения
+
+- внешние квоты и доступность Gemini/stock providers не контролируются проектом;
+- фактологию и соответствие изображения человек подтверждает в Preview/Queue;
+- timeout Telegram после фактической отправки нельзя безопасно повторять вслепую,
+  поэтому неоднозначный сбой фиксируется как `failed` и повторяется вручную;
+- это single-owner поставка, не публичный SaaS с регистрацией и биллингом.

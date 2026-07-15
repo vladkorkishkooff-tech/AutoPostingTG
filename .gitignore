@@ -3,7 +3,18 @@
 .venv/
 __pycache__/
 *.pyc
+node_modules/
+.next/
+coverage/
+*.tsbuildinfo
 images/*
 !images/.gitkeep
 data/*
 !data/.gitkeep
+.vercel
+.playwright-cli/
+.env*
+
+# Obsolete local prototypes. Production uses root app/ and the Python bot.
+/api/
+/web/

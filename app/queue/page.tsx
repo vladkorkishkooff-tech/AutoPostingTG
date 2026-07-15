@@ -5,7 +5,6 @@ import useSWR from 'swr'
 import Image from 'next/image'
 import { Inbox, Check, X, Pencil, ImageIcon, Link2, RefreshCw } from 'lucide-react'
 import { PageHeader, Skeleton, StatusPill } from '@/components/ui'
-import { BottomNav } from '@/components/bottom-nav'
 import { swrFetcher as fetcher, apiFetch, haptic } from '@/lib/client'
 
 type QueuedPost = {
@@ -21,6 +20,8 @@ type QueuedPost = {
   scheduled_at: string | null
   channel_title: string | null
   chat_id: string
+  error: string | null
+  error_code: string | null
 }
 
 function formatWhen(iso: string | null): string {
@@ -39,6 +40,8 @@ function MediaEditor({
   const [url, setUrl] = useState(post.image_url ?? '')
   const [mediaType, setMediaType] = useState<'photo' | 'video'>(post.media_type === 'video' ? 'video' : 'photo')
   const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const [candidates, setCandidates] = useState<{ url: string; source: string; title?: string }[]>([])
 
   async function save(imageUrl: string | null, type?: 'photo' | 'video', source?: string) {
     setBusy('save')
@@ -58,21 +61,30 @@ function MediaEditor({
   async function pickStock() {
     haptic('medium')
     setBusy('stock')
+    setError('')
     try {
       const res = await apiFetch('/api/image-search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic: post.topic, excludedUrls: post.image_url ? [post.image_url] : [] }),
+        body: JSON.stringify({
+          topic: post.topic,
+          text: post.text,
+          excludedUrls: [post.image_url, ...candidates.map((candidate) => candidate.url)].filter(Boolean),
+          count: 3,
+        }),
       })
       if (res.ok) {
         const data = await res.json()
-        if (data.url) {
-          setUrl(data.url)
-          setMediaType('photo')
-          await save(data.url, 'photo', data.source)
+        if (Array.isArray(data.candidates) && data.candidates.length) {
+          setCandidates(data.candidates)
           return
         }
       }
+      const data = await res.json().catch(() => ({}))
+      setError(data.message || 'Не удалось подобрать релевантное фото. Старое изображение сохранено.')
+      haptic('error')
+    } catch {
+      setError('Бот не ответил. Старое изображение сохранено — попробуйте ещё раз.')
       haptic('error')
     } finally {
       setBusy(null)
@@ -142,6 +154,28 @@ function MediaEditor({
           </button>
         ) : null}
       </div>
+      {error ? <p role="alert" className="text-[12px] leading-relaxed text-destructive">{error}</p> : null}
+      {candidates.length ? (
+        <div className="grid grid-cols-3 gap-2" aria-label="Варианты стокового фото">
+          {candidates.map((candidate) => (
+            <button
+              key={candidate.url}
+              type="button"
+              disabled={busy !== null}
+              onClick={async () => {
+                setUrl(candidate.url)
+                setMediaType('photo')
+                await save(candidate.url, 'photo', candidate.source)
+                setCandidates([])
+              }}
+              className="overflow-hidden rounded-lg border border-border text-left transition-colors hover:border-primary/60 disabled:opacity-50"
+            >
+              <Image src={candidate.url} alt={candidate.title || `Фото из ${candidate.source}`} width={240} height={135} unoptimized className="aspect-video w-full object-cover" />
+              <span className="block truncate px-2 py-1 text-[10px] text-muted-foreground">{candidate.source}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -152,16 +186,30 @@ function QueueCard({ post, onChanged }: { post: QueuedPost; onChanged: () => voi
   const [text, setText] = useState(post.text)
   const [busy, setBusy] = useState<string | null>(null)
 
-  async function act(action: 'approve' | 'reject') {
+  async function act(action: 'approve' | 'reject' | 'regenerate' | 'publish') {
     haptic(action === 'approve' ? 'success' : 'medium')
     setBusy(action)
     try {
-      await apiFetch(`/api/queue/${post.id}`, {
+      const response = await apiFetch(`/api/queue/${post.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),
       })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'queue_action_failed')
+      }
       onChanged()
+    } catch (error) {
+      haptic('error')
+      const code = error instanceof Error ? error.message : 'queue_action_failed'
+      window.alert(
+        code === 'bot_unavailable'
+          ? 'Бот недоступен. Старый черновик сохранён.'
+          : code === 'regeneration_failed'
+            ? 'Не удалось создать другой факт. Старый текст сохранён.'
+            : 'Действие не выполнено. Попробуйте ещё раз.',
+      )
     } finally {
       setBusy(null)
     }
@@ -198,8 +246,8 @@ function QueueCard({ post, onChanged }: { post: QueuedPost; onChanged: () => voi
             {post.channel_title || post.chat_id}
           </span>
         </div>
-        <StatusPill tone={post.status === 'approved' ? 'green' : 'blue'}>
-          {post.status === 'approved' ? 'одобрен' : 'на проверке'}
+        <StatusPill tone={post.status === 'approved' ? 'green' : post.status === 'failed' ? 'red' : 'blue'}>
+          {post.status === 'approved' ? 'одобрен' : post.status === 'failed' ? 'ошибка' : 'на проверке'}
         </StatusPill>
       </div>
 
@@ -259,8 +307,24 @@ function QueueCard({ post, onChanged }: { post: QueuedPost; onChanged: () => voi
 
       {showMedia ? <MediaEditor post={post} onSaved={onChanged} /> : null}
 
+      {post.status === 'failed' ? (
+        <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">
+          Публикация не состоялась: {post.error_code || post.error || 'неизвестная ошибка'}. Исправьте пост и повторите вручную.
+        </p>
+      ) : null}
+
       <div className="flex items-center gap-2 border-t border-border pt-3">
-        {post.status !== 'approved' ? (
+        {post.status === 'failed' || post.scheduled_at === null ? (
+          <button
+            type="button"
+            onClick={() => act('publish')}
+            disabled={busy !== null}
+            className="btn-green pressable flex flex-1 items-center justify-center gap-1.5 px-3 py-2.5 text-[13px] disabled:opacity-50"
+          >
+            <Check size={15} aria-hidden="true" />
+            {busy === 'publish' ? 'Публикация…' : post.status === 'failed' ? 'Повторить' : 'Опубликовать'}
+          </button>
+        ) : post.status !== 'approved' ? (
           <button
             type="button"
             onClick={() => act('approve')}
@@ -271,6 +335,15 @@ function QueueCard({ post, onChanged }: { post: QueuedPost; onChanged: () => voi
             Одобрить
           </button>
         ) : null}
+        <button
+          type="button"
+          onClick={() => act('regenerate')}
+          disabled={busy !== null}
+          aria-label="Перегенерировать текст"
+          className="btn-outline-green pressable flex items-center justify-center p-2.5 disabled:opacity-50"
+        >
+          <RefreshCw size={15} aria-hidden="true" className={busy === 'regenerate' ? 'animate-spin' : undefined} />
+        </button>
         <button
           type="button"
           onClick={() => {
@@ -360,8 +433,6 @@ export default function QueuePage() {
           posts.map((p) => <QueueCard key={p.id} post={p} onChanged={() => mutate()} />)
         )}
       </div>
-
-      <BottomNav />
     </div>
   )
 }

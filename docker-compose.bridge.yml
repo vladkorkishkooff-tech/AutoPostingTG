@@ -1,0 +1,6 @@
+services:
+  bot:
+    # Keep the raw HTTP bridge private. Terminate TLS in a reverse proxy on the
+    # host and proxy to this loopback port when BOT_BRIDGE_URL is public.
+    ports:
+      - "127.0.0.1:${BRIDGE_PORT:-8081}:${BRIDGE_PORT:-8081}"

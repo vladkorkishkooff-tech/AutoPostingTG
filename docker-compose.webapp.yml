@@ -1,0 +1,4 @@
+services:
+  bot:
+    environment:
+      WEB_APP_URL: https://autoposting-tg.vercel.app

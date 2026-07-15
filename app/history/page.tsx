@@ -1,13 +1,18 @@
 'use client'
 
+import { useMemo, useState } from 'react'
 import useSWR from 'swr'
 import Link from 'next/link'
+import Image from 'next/image'
 import { ShieldCheck, FileText } from 'lucide-react'
 import { PageHeader, Skeleton, EmptyState } from '@/components/ui'
 import { swrFetcher as fetcher, haptic } from '@/lib/client'
 
 type Post = {
   id: number
+  channel_id: number
+  channel_title: string | null
+  chat_id: string
   topic: string
   mode: string
   text: string
@@ -15,6 +20,8 @@ type Post = {
   status: string
   published_at: string | null
 }
+
+type Channel = { id: number; title: string | null; chat_id: string; is_active: boolean }
 
 function MiniStat({ label, value }: { label: string; value: string; accent?: boolean }) {
   return (
@@ -26,7 +33,15 @@ function MiniStat({ label, value }: { label: string; value: string; accent?: boo
 }
 
 export default function HistoryPage() {
-  const { data, isLoading } = useSWR<{ posts: Post[] }>('/api/posts?status=published', fetcher)
+  const [channelId, setChannelId] = useState('')
+  const [days, setDays] = useState('30')
+  const postsUrl = useMemo(() => {
+    const params = new URLSearchParams({ status: 'published', days, limit: '100' })
+    if (channelId) params.set('channelId', channelId)
+    return `/api/posts?${params.toString()}`
+  }, [channelId, days])
+  const { data, isLoading } = useSWR<{ posts: Post[] }>(postsUrl, fetcher)
+  const { data: channelData } = useSWR<{ channels: Channel[] }>('/api/channels', fetcher)
   const posts = data?.posts ?? []
 
   const withImages = posts.filter((p) => p.image_url).length
@@ -37,6 +52,26 @@ export default function HistoryPage() {
       <PageHeader title="История" subtitle="Все опубликованные посты вашего канала" />
 
       <div className="fade-up flex flex-col gap-5 px-5 py-6">
+        <div className="grid grid-cols-2 gap-2" aria-label="Фильтры истории">
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] text-muted-foreground">Канал</span>
+            <select value={channelId} onChange={(event) => setChannelId(event.target.value)} className="glass px-3 py-2 text-xs outline-none">
+              <option value="">Все каналы</option>
+              {(channelData?.channels ?? []).map((channel) => (
+                <option key={channel.id} value={channel.id}>{channel.title || channel.chat_id}</option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] text-muted-foreground">Период</span>
+            <select value={days} onChange={(event) => setDays(event.target.value)} className="glass px-3 py-2 text-xs outline-none">
+              <option value="7">7 дней</option>
+              <option value="30">30 дней</option>
+              <option value="90">90 дней</option>
+              <option value="365">Год</option>
+            </select>
+          </label>
+        </div>
         {!isLoading && posts.length > 0 ? (
           <div className="glass grid grid-cols-4 gap-2 p-4">
             <MiniStat label="Всего постов" value={String(posts.length)} />
@@ -72,9 +107,12 @@ export default function HistoryPage() {
             {posts.map((post) => (
               <article key={post.id} className="glass flex gap-3.5 p-4">
                 {post.image_url ? (
-                  <img
+                  <Image
                     src={post.image_url || '/placeholder.svg'}
                     alt=""
+                    width={56}
+                    height={56}
+                    unoptimized
                     className="size-14 shrink-0 rounded-lg border border-border object-cover"
                   />
                 ) : (
@@ -97,6 +135,7 @@ export default function HistoryPage() {
                           : ''}
                       </span>
                       <span className="text-[11px] text-primary">{post.topic}</span>
+                      <span className="max-w-24 truncate text-[11px] text-muted-foreground">{post.channel_title || post.chat_id}</span>
                     </div>
                     <ShieldCheck size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />
                   </div>

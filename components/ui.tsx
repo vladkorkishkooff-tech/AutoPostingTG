@@ -85,13 +85,14 @@ export function StatusPill({
   tone = 'green',
 }: {
   children: ReactNode
-  tone?: 'green' | 'dim' | 'blue' | 'yellow'
+  tone?: 'green' | 'dim' | 'blue' | 'yellow' | 'red'
 }) {
   const tones = {
     green: 'pill-scheduled',
     yellow: 'pill-ready',
     blue: 'pill-posted',
     dim: 'border border-border bg-muted text-muted-foreground',
+    red: 'border border-destructive/40 bg-destructive/10 text-destructive',
   }
   return (
     <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${tones[tone]}`}>{children}</span>

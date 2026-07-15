@@ -6,6 +6,8 @@ the legacy JSON ContentHistory.
 """
 
 import logging
+import re
+import uuid
 from datetime import datetime, timezone
 
 import asyncpg
@@ -15,6 +17,15 @@ from content_history import text_hash
 logger = logging.getLogger(__name__)
 
 _pool: asyncpg.Pool | None = None
+
+_PUBLIC_CHANNEL_RE = re.compile(r"^@[A-Za-z0-9_]{5,32}$")
+_PRIVATE_CHANNEL_RE = re.compile(r"^-100\d{6,}$")
+
+
+def is_valid_channel_target(chat_id: str | int) -> bool:
+    """Only Telegram channels, never user/group numeric identifiers."""
+    value = str(chat_id).strip()
+    return bool(_PUBLIC_CHANNEL_RE.fullmatch(value) or _PRIVATE_CHANNEL_RE.fullmatch(value))
 
 
 async def get_pool(database_url: str) -> asyncpg.Pool:
@@ -55,6 +66,8 @@ async def ensure_channel(
     topic: str = "наука",
     mode: str = "normal",
 ) -> int:
+    if not is_valid_channel_target(chat_id):
+        raise ValueError("invalid_publication_target")
     row = await pool.fetchrow(
         """
         INSERT INTO channels (user_id, chat_id, title, topic, mode)
@@ -115,7 +128,9 @@ async def owner_channels(pool: asyncpg.Pool, user_id: int) -> list[dict]:
     """Каналы владельца с настройками — для команд бота."""
     rows = await pool.fetch(
         """
-        SELECT id, chat_id, title, topic, mode, image_policy, is_active
+        SELECT id, chat_id, title, topic, mode, image_policy, is_active,
+               is_verified, telegram_chat_id, telegram_title, telegram_username,
+               bot_can_post, verified_at, verification_error
         FROM channels
         WHERE user_id = $1
         ORDER BY id
@@ -123,6 +138,17 @@ async def owner_channels(pool: asyncpg.Pool, user_id: int) -> list[dict]:
         user_id,
     )
     return [dict(r) for r in rows]
+
+
+async def channel_for_owner_target(
+    pool: asyncpg.Pool, user_id: int, chat_id: str | int
+) -> dict | None:
+    row = await pool.fetchrow(
+        "SELECT id, chat_id FROM channels WHERE user_id = $1 AND chat_id = $2",
+        user_id,
+        str(chat_id),
+    )
+    return dict(row) if row else None
 
 
 async def update_channel_field(
@@ -288,10 +314,54 @@ async def has_text(
 async def get_channel_settings(pool: asyncpg.Pool, channel_id: int) -> dict | None:
     """Настройки канала: медиа-политика и базовые поля."""
     row = await pool.fetchrow(
-        "SELECT id, chat_id, topic, mode, image_policy, is_active FROM channels WHERE id = $1",
+        """
+        SELECT id, user_id, chat_id, title, topic, mode, image_policy, is_active,
+               is_verified, telegram_chat_id, telegram_title, telegram_username,
+               bot_can_post, verified_at, verification_error, footer_title, footer_url,
+               style_profile
+        FROM channels WHERE id = $1
+        """,
         channel_id,
     )
     return dict(row) if row else None
+
+
+async def update_channel_verification(
+    pool: asyncpg.Pool,
+    channel_id: int,
+    *,
+    verified: bool,
+    telegram_chat_id: int | None = None,
+    title: str | None = None,
+    username: str | None = None,
+    can_post: bool = False,
+    error: str | None = None,
+) -> None:
+    """Persist the last authoritative Telegram verification result."""
+    await pool.execute(
+        """
+        UPDATE channels
+        SET is_verified = $2,
+            telegram_chat_id = COALESCE($3, telegram_chat_id),
+            telegram_title = COALESCE($4, telegram_title),
+            telegram_username = COALESCE($5, telegram_username),
+            bot_can_post = $6,
+            verified_at = now(),
+            verification_error = $7,
+            is_active = CASE WHEN $2 THEN is_active ELSE false END,
+            footer_title = COALESCE(footer_title, $4),
+            footer_url = COALESCE(footer_url, CASE WHEN $5 IS NULL THEN NULL ELSE 'https://t.me/' || $5 END),
+            updated_at = now()
+        WHERE id = $1
+        """,
+        channel_id,
+        verified,
+        telegram_chat_id,
+        title,
+        username,
+        can_post,
+        error[:120] if error else None,
+    )
 
 
 async def pick_pool_topic(pool: asyncpg.Pool, channel_id: int) -> str | None:
@@ -357,18 +427,19 @@ async def get_queued_post_for_slot(
     schedule_id: int,
     scheduled_at: datetime,
 ) -> dict | None:
-    """Пост из очереди для конкретного слота (queued или approved).
+    """Latest prepared post for a slot, including an explicit rejection.
 
-    Rejected-посты игнорируются — вместо них генерируется новый.
+    Returning rejected is intentional: rejection cancels that schedule run and
+    must never be interpreted as permission to generate a replacement.
     """
     row = await pool.fetchrow(
         """
         SELECT id, channel_id, topic, mode, text, image_url, image_source, media_type, status
         FROM posts
         WHERE schedule_id = $1
-          AND status IN ('queued', 'approved')
+          AND status IN ('queued', 'approved', 'rejected')
           AND scheduled_at BETWEEN $2::timestamptz - interval '12 hours' AND $2::timestamptz + interval '5 minutes'
-        ORDER BY status = 'approved' DESC, created_at DESC
+        ORDER BY created_at DESC
         LIMIT 1
         """,
         schedule_id,
@@ -399,30 +470,114 @@ async def has_queued_post_for_slot(
 async def mark_post_published(
     pool: asyncpg.Pool,
     post_id: int,
-    telegram_message_id: int | None,
+    telegram_message_id: int,
+    *,
+    telegram_chat_id: int,
+    target_channel_title: str | None,
+    telegram_message_link: str | None,
 ) -> None:
     await pool.execute(
         """
         UPDATE posts
-        SET status = 'published', published_at = now(), telegram_message_id = $2, error = NULL
+        SET status = 'published', published_at = now(), telegram_message_id = $2,
+            telegram_chat_id = $3, target_channel_title = $4,
+            telegram_message_link = $5, error = NULL, error_code = NULL
         WHERE id = $1
         """,
         post_id,
         telegram_message_id,
+        telegram_chat_id,
+        target_channel_title,
+        telegram_message_link,
     )
 
 
-async def mark_post_failed(pool: asyncpg.Pool, post_id: int, error: str) -> None:
+async def mark_post_publishing(pool: asyncpg.Pool, post_id: int) -> str | None:
+    attempt_id = str(uuid.uuid4())
+    result = await pool.execute(
+        """
+        UPDATE posts
+        SET status = 'publishing', publication_attempt_id = $2::uuid,
+            publishing_started_at = now(), error = NULL, error_code = NULL
+        WHERE id = $1 AND status IN ('queued', 'approved')
+        """,
+        post_id,
+        attempt_id,
+    )
+    return attempt_id if result.endswith("1") else None
+
+
+async def post_status(pool: asyncpg.Pool, post_id: int) -> str | None:
+    return await pool.fetchval("SELECT status FROM posts WHERE id = $1", post_id)
+
+
+async def update_post_media(
+    pool: asyncpg.Pool,
+    post_id: int,
+    *,
+    image_url: str | None,
+    image_source: str | None,
+    media_type: str | None,
+) -> None:
     await pool.execute(
-        "UPDATE posts SET status = 'failed', error = $2 WHERE id = $1",
+        "UPDATE posts SET image_url = $2, image_source = $3, media_type = $4 WHERE id = $1",
+        post_id,
+        image_url,
+        image_source,
+        media_type,
+    )
+
+
+async def mark_post_failed(
+    pool: asyncpg.Pool, post_id: int, error: str, *, error_code: str = "telegram_send_failed"
+) -> None:
+    await pool.execute(
+        "UPDATE posts SET status = 'failed', error = $2, error_code = $3 WHERE id = $1",
         post_id,
         error[:500],
+        error_code[:80],
     )
+
+
+async def insert_publishing_post(
+    pool: asyncpg.Pool,
+    channel_id: int,
+    *,
+    topic: str,
+    mode: str,
+    text: str,
+    image_url: str | None,
+    image_source: str | None,
+    schedule_id: int | None = None,
+    media_type: str | None = None,
+) -> tuple[int, str]:
+    attempt_id = str(uuid.uuid4())
+    row = await pool.fetchrow(
+        """
+        INSERT INTO posts (
+            channel_id, topic, mode, text, text_hash, image_url, image_source,
+            status, schedule_id, media_type, publication_attempt_id, publishing_started_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'publishing', $8, $9, $10::uuid, now())
+        RETURNING id
+        """,
+        channel_id,
+        topic,
+        mode,
+        text,
+        text_hash(text),
+        image_url,
+        image_source,
+        schedule_id,
+        media_type,
+        attempt_id,
+    )
+    return row["id"], attempt_id
 
 
 async def active_channels(pool: asyncpg.Pool) -> list[dict]:
     rows = await pool.fetch(
-        "SELECT id, chat_id FROM channels WHERE is_active ORDER BY id"
+        "SELECT id, chat_id FROM channels WHERE is_active AND is_verified AND bot_can_post ORDER BY id"
     )
     return [dict(r) for r in rows]
 
@@ -471,6 +626,8 @@ async def add_published_post(
     schedule_id: int | None = None,
     media_type: str | None = None,
 ) -> int:
+    if telegram_message_id is None:
+        raise ValueError("telegram_message_id_required")
     row = await pool.fetchrow(
         """
         INSERT INTO posts (channel_id, topic, mode, text, text_hash, image_url, image_source,

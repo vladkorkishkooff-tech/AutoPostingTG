@@ -1,0 +1,13 @@
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    env_file:
+      - .env
+    environment:
+      REQUIRE_PRODUCTION_CONFIG: "1"
+    restart: unless-stopped
+    init: true
+    # The bridge is intentionally not published. Keep it on a private network
+    # or behind an HTTPS reverse proxy when the Mini App must reach it.

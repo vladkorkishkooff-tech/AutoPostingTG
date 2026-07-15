@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import useSWR from 'swr'
 import Link from 'next/link'
+import Image from 'next/image'
 import {
   ExternalLink,
   Radio,
@@ -30,10 +31,7 @@ type Stats = {
 function useCountdown(target: string | null): { h: string; m: string; s: string } | null {
   const [parts, setParts] = useState<{ h: string; m: string; s: string } | null>(null)
   useEffect(() => {
-    if (!target) {
-      setParts(null)
-      return
-    }
+    if (!target) return
     function tick() {
       const ms = new Date(target as string).getTime() - Date.now()
       if (ms <= 0) {
@@ -47,11 +45,14 @@ function useCountdown(target: string | null): { h: string; m: string; s: string 
       const pad = (n: number) => String(n).padStart(2, '0')
       setParts({ h: pad(h), m: pad(m), s: pad(s) })
     }
-    tick()
+    const initial = window.setTimeout(tick, 0)
     const id = setInterval(tick, 1000)
-    return () => clearInterval(id)
+    return () => {
+      clearTimeout(initial)
+      clearInterval(id)
+    }
   }, [target])
-  return parts
+  return target ? parts : null
 }
 
 /** Мини-график динамики подписчиков (простая ломаная) */
@@ -379,9 +380,12 @@ export default function DashboardPage() {
                     </span>
                     <div className="tg-post min-w-0 flex-1 overflow-hidden">
                       {lastPost.image_url ? (
-                        <img
+                        <Image
                           src={lastPost.image_url || '/placeholder.svg'}
                           alt=""
+                          width={800}
+                          height={450}
+                          unoptimized
                           className="max-h-44 w-full object-cover"
                         />
                       ) : null}

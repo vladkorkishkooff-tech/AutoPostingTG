@@ -1,0 +1,9 @@
+services:
+  bot:
+    # Docker Desktop: reach the proxy running on the Windows host, rather than
+    # the container's own loopback interface.
+    environment:
+      TELEGRAM_PROXY_URL: http://host.docker.internal:10809
+      OUTBOUND_PROXY_URL: http://host.docker.internal:10809
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

@@ -10,6 +10,22 @@ export type AuthUser = {
 
 const MAX_INIT_DATA_AGE_SECONDS = 60 * 60 * 24 // 24 часа
 
+function configuredAdminIds(): Set<number> {
+  return new Set(
+    (process.env.ADMIN_USER_IDS ?? '')
+      .split(',')
+      .map((value) => Number(value.trim()))
+      .filter((value) => Number.isSafeInteger(value) && value > 0),
+  )
+}
+
+function isAuthorisedTelegramUser(telegramId: number): boolean {
+  const admins = configuredAdminIds()
+  // A production deployment without an allow-list must fail closed. The
+  // explicit development fallback below remains available for local UI work.
+  return admins.size > 0 && admins.has(telegramId)
+}
+
 /**
  * Валидация Telegram WebApp initData по официальному алгоритму:
  * secret_key = HMAC_SHA256("WebAppData", bot_token)
@@ -36,7 +52,8 @@ export function validateInitData(initData: string, botToken: string): Record<str
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null
 
   const authDate = Number(params.get('auth_date') ?? 0)
-  if (!authDate || Date.now() / 1000 - authDate > MAX_INIT_DATA_AGE_SECONDS) return null
+  const now = Date.now() / 1000
+  if (!authDate || authDate > now + 60 || now - authDate > MAX_INIT_DATA_AGE_SECONDS) return null
 
   const result: Record<string, string> = {}
   for (const [k, v] of params.entries()) result[k] = v
@@ -48,7 +65,7 @@ export function validateInitData(initData: string, botToken: string): Record<str
  * Создаёт пользователя в БД при первом входе.
  * Возвращает null, если авторизация не прошла.
  *
- * Режим разработки: если ALLOW_DEV_AUTH=1 и заголовка нет —
+ * Режим разработки: если NODE_ENV=development, ALLOW_DEV_AUTH=1 и заголовка нет —
  * возвращает первого пользователя из БД (для локального превью).
  */
 export async function getAuthUser(request: Request): Promise<AuthUser | null> {
@@ -65,7 +82,7 @@ export async function getAuthUser(request: Request): Promise<AuthUser | null> {
     } catch {
       return null
     }
-    if (!tgUser.id) return null
+    if (!tgUser.id || !isAuthorisedTelegramUser(tgUser.id)) return null
 
     const rows = (await sql`
       INSERT INTO users (telegram_id, username, first_name)
@@ -87,9 +104,9 @@ export async function getAuthUser(request: Request): Promise<AuthUser | null> {
     }
   }
 
-  // Dev-фоллбек: локальная разработка (NODE_ENV=development) или явный ALLOW_DEV_AUTH=1.
-  // В production NODE_ENV=production, поэтому фоллбек недоступен без флага.
-  if (process.env.NODE_ENV === 'development' || process.env.ALLOW_DEV_AUTH === '1') {
+  // Dev-фоллбек требует одновременно development-среду и явный флаг.
+  // Значение ALLOW_DEV_AUTH в production никогда не отключает Telegram-проверку.
+  if (process.env.NODE_ENV === 'development' && process.env.ALLOW_DEV_AUTH === '1') {
     const rows = (await sql`SELECT id, telegram_id, username, first_name FROM users ORDER BY id LIMIT 1`) as {
       id: number
       telegram_id: number

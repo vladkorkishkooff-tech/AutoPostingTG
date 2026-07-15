@@ -63,7 +63,7 @@ export async function GET(request: Request) {
       SELECT
         count(*) FILTER (WHERE p.status = 'published') AS total_posts,
         count(*) FILTER (WHERE p.status = 'published' AND p.published_at::date = now()::date) AS posts_today,
-        count(*) FILTER (WHERE p.status IN ('scheduled', 'queued', 'approved')) AS queued
+        count(*) FILTER (WHERE p.status IN ('queued', 'approved')) AS queued
       FROM posts p
       JOIN channels c ON c.id = p.channel_id
       WHERE c.user_id = ${user.userId}
@@ -82,7 +82,8 @@ export async function GET(request: Request) {
       SELECT s.post_time, s.days_of_week, s.timezone
       FROM schedules s
       JOIN channels c ON c.id = s.channel_id
-      WHERE s.is_active AND c.is_active AND c.user_id = ${user.userId}
+      WHERE s.is_active AND c.is_active AND c.is_verified AND c.bot_can_post
+        AND c.user_id = ${user.userId}
     `
     const nextPostAt = computeNextSlot(schedules as never)
 

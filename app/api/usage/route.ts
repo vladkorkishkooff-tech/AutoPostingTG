@@ -11,14 +11,20 @@ export async function GET(request: Request) {
     const uid = user.userId
     const [totals, byProvider, daily, recentErrors] = await Promise.all([
       sql`
-        SELECT
-          count(*) FILTER (WHERE event_type = 'generation') AS generations,
-          count(*) FILTER (WHERE event_type = 'generation' AND success) AS generations_ok,
-          count(*) FILTER (WHERE event_type = 'publish' AND success) AS publishes,
-          count(*) FILTER (WHERE event_type = 'publish' AND NOT success) AS publish_failures,
-          coalesce(avg(duration_ms) FILTER (WHERE event_type = 'generation' AND success), 0)::int AS avg_duration_ms
-        FROM usage_events
-        WHERE created_at > now() - interval '30 days' AND user_id = ${uid}
+        WITH events AS (
+          SELECT
+            count(*) FILTER (WHERE event_type = 'generation') AS generations,
+            count(*) FILTER (WHERE event_type = 'generation' AND success) AS generations_ok,
+            coalesce(avg(duration_ms) FILTER (WHERE event_type = 'generation' AND success), 0)::int AS avg_duration_ms
+          FROM usage_events WHERE created_at > now() - interval '30 days' AND user_id = ${uid}
+        ), publication AS (
+          SELECT
+            count(*) FILTER (WHERE p.status = 'published') AS publishes,
+            count(*) FILTER (WHERE p.status = 'failed') AS publish_failures
+          FROM posts p JOIN channels c ON c.id = p.channel_id
+          WHERE c.user_id = ${uid} AND p.created_at > now() - interval '30 days'
+        )
+        SELECT events.*, publication.publishes, publication.publish_failures FROM events, publication
       `,
       sql`
         SELECT provider, model,
@@ -33,10 +39,10 @@ export async function GET(request: Request) {
         LIMIT 10
       `,
       sql`
-        SELECT date_trunc('day', created_at)::date AS day,
-          count(*) FILTER (WHERE event_type = 'publish' AND success) AS posts
-        FROM usage_events
-        WHERE created_at > now() - interval '14 days' AND user_id = ${uid}
+        SELECT date_trunc('day', p.published_at)::date AS day, count(*) AS posts
+        FROM posts p JOIN channels c ON c.id = p.channel_id
+        WHERE p.status = 'published' AND p.published_at > now() - interval '14 days'
+          AND c.user_id = ${uid}
         GROUP BY 1
         ORDER BY 1
       `,
@@ -56,7 +62,7 @@ export async function GET(request: Request) {
       recentErrors,
     })
   } catch (error) {
-    console.error('[v0] usage stats error:', error)
-    return NextResponse.json({ totals: null, byProvider: [], daily: [], recentErrors: [] })
+    console.error('[usage] stats error:', error)
+    return NextResponse.json({ error: 'db_error' }, { status: 500 })
   }
 }

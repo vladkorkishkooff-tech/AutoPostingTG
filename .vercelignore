@@ -1,0 +1,23 @@
+.env
+.env.*
+.venv/
+__pycache__/
+*.pyc
+.next/
+node_modules/
+
+# The Python bot is deployed separately on Railway.
+*.py
+requirements.txt
+/migrations/
+Dockerfile*
+docker-compose*.yml
+docker-entrypoint.sh
+railway.toml
+/deploy/
+/data/
+/images/
+/tests/
+/api/
+/web/
+/docs/

@@ -29,7 +29,9 @@ export async function POST(request: Request) {
     const title = String(body.title ?? '').trim().slice(0, 60)
     const topic = String(body.topic ?? '').trim().slice(0, 120)
     if (!title || !topic) return NextResponse.json({ error: 'missing_fields' }, { status: 400 })
-    const mode = typeof body.mode === 'string' && body.mode.trim() ? body.mode.slice(0, 30) : null
+    const requestedMode = typeof body.mode === 'string' ? body.mode.trim() : ''
+    const allowedModes = new Set(['normal', 'funny', 'wow', 'strict', 'short', 'long'])
+    const mode = requestedMode && allowedModes.has(requestedMode) ? requestedMode : 'normal'
 
     const [template] = await sql`
       INSERT INTO post_templates (user_id, title, topic, mode)

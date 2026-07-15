@@ -6,10 +6,14 @@ Key = sha256(KEYS_ENCRYPTION_SECRET).
 """
 
 import base64
+import asyncio
 import hashlib
+import ipaddress
 import logging
 import os
+import socket
 import time
+from urllib.parse import urlparse
 
 import asyncpg
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -44,6 +48,34 @@ PROVIDER_DEFAULT_MODELS = {
 }
 
 
+async def is_public_https_url(value: str) -> bool:
+    """Re-check a custom endpoint at runtime, including its current DNS answers."""
+    try:
+        parsed = urlparse(value)
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+        ):
+            return False
+        addresses = await asyncio.get_running_loop().getaddrinfo(
+            parsed.hostname,
+            parsed.port or 443,
+            type=socket.SOCK_STREAM,
+        )
+    except (OSError, UnicodeError, ValueError):
+        return False
+    if not addresses:
+        return False
+    try:
+        return all(ipaddress.ip_address(item[4][0]).is_global for item in addresses)
+    except ValueError:
+        return False
+
+
 def _encryption_key() -> bytes:
     secret = os.getenv("KEYS_ENCRYPTION_SECRET", "").strip()
     if not secret:
@@ -65,10 +97,13 @@ async def fetch_user_providers(pool: asyncpg.Pool, user_id: int) -> list[dict]:
     """Returns ordered provider dicts: name, base_url, api_key, models, key_id."""
     rows = await pool.fetch(
         """
-        SELECT id, provider, model, base_url, encrypted_key
-        FROM api_keys
-        WHERE user_id = $1 AND is_active = true
-        ORDER BY priority ASC, id ASC
+        SELECT k.id, k.provider, k.model, k.base_url, k.encrypted_key
+        FROM api_keys k
+        LEFT JOIN provider_settings s
+          ON s.user_id = k.user_id AND s.provider = k.provider
+        WHERE k.user_id = $1 AND k.is_active = true
+          AND COALESCE(s.is_enabled, true) = true
+        ORDER BY COALESCE(s.priority, k.priority) ASC, k.priority ASC, k.id ASC
         """,
         user_id,
     )
@@ -84,6 +119,9 @@ async def fetch_user_providers(pool: asyncpg.Pool, user_id: int) -> list[dict]:
         model = row["model"] or PROVIDER_DEFAULT_MODELS.get(provider, "")
         if not base_url or not model:
             logger.warning("Skipping key id=%s: missing base_url or model", row["id"])
+            continue
+        if provider == "custom" and not await is_public_https_url(base_url):
+            logger.warning("Skipping custom key id=%s: endpoint is not public HTTPS", row["id"])
             continue
         providers.append(
             {
@@ -103,6 +141,28 @@ async def mark_key_used(pool: asyncpg.Pool, key_id: int, error: str | None = Non
         key_id,
         error,
     )
+
+
+def key_attempt_logger(pool: asyncpg.Pool):
+    """Build an AI-image attempt hook that updates the encrypted key record.
+
+    The callback deliberately stores only a short error code, never a response
+    body or decrypted secret.
+    """
+
+    async def callback(
+        provider: str,
+        model: str,
+        success: bool,
+        error: str | None,
+        duration_ms: int,
+        key_id: int | None,
+    ) -> None:
+        del provider, model, duration_ms
+        if key_id is not None:
+            await mark_key_used(pool, key_id, None if success else (error or "request_failed")[:120])
+
+    return callback
 
 
 async def log_usage(

@@ -5,13 +5,12 @@ import useSWR from 'swr'
 import { useRouter } from 'next/navigation'
 import { Play, Trash2, Plus } from 'lucide-react'
 import { PageHeader, Skeleton } from '@/components/ui'
-import { BottomNav } from '@/components/bottom-nav'
 import { apiFetch, haptic, swrFetcher } from '@/lib/client'
 
 type Template = { id: number; title: string; topic: string; mode: string | null; created_at: string }
 
 const MODES = [
-  { id: '', label: 'Любой' },
+  { id: 'normal', label: 'Обычный' },
   { id: 'normal', label: 'Обычный' },
   { id: 'funny', label: 'Смешной' },
   { id: 'wow', label: 'Wow' },
@@ -23,7 +22,7 @@ export default function TemplatesPage() {
   const { data, mutate } = useSWR<{ templates: Template[] }>('/api/templates', swrFetcher)
   const [title, setTitle] = useState('')
   const [topic, setTopic] = useState('')
-  const [mode, setMode] = useState('')
+  const [mode, setMode] = useState('normal')
   const [busy, setBusy] = useState(false)
 
   async function addTemplate() {
@@ -34,13 +33,13 @@ export default function TemplatesPage() {
       const res = await apiFetch('/api/templates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, topic, mode: mode || null }),
+        body: JSON.stringify({ title, topic, mode }),
       })
       if (res.ok) {
         haptic('success')
         setTitle('')
         setTopic('')
-        setMode('')
+        setMode('normal')
         mutate()
       } else {
         haptic('error')
@@ -161,7 +160,6 @@ export default function TemplatesPage() {
           )}
         </section>
       </div>
-      <BottomNav />
     </div>
   )
 }

@@ -2,9 +2,8 @@
 
 import { useState } from 'react'
 import useSWR from 'swr'
-import { Plus, Trash2, Radio, ChevronDown, X } from 'lucide-react'
+import { Plus, Radio, ChevronDown, X } from 'lucide-react'
 import { PageHeader, Toggle, Skeleton, EmptyState, StatusPill } from '@/components/ui'
-import { BottomNav } from '@/components/bottom-nav'
 import { swrFetcher as fetcher, apiFetch, haptic } from '@/lib/client'
 
 type Channel = {
@@ -15,6 +14,13 @@ type Channel = {
   mode: string
   image_policy: string
   is_active: boolean
+  is_verified: boolean
+  telegram_chat_id: string | number | null
+  telegram_title: string | null
+  telegram_username: string | null
+  bot_can_post: boolean
+  verified_at: string | null
+  verification_error: string | null
   active_schedules: number
   published_posts: number
 }
@@ -123,14 +129,49 @@ function TopicPool({ channelId }: { channelId: number }) {
 
 function ChannelCard({ channel, onChanged }: { channel: Channel; onChanged: () => void }) {
   const [open, setOpen] = useState(false)
+  const [title, setTitle] = useState(channel.title ?? '')
+  const [topic, setTopic] = useState(channel.topic)
+  const [mode, setMode] = useState(channel.mode)
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
 
   async function patch(payload: Record<string, unknown>) {
-    await apiFetch(`/api/channels/${channel.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    onChanged()
+    setSaving(true)
+    setError(null)
+    try {
+      const response = await apiFetch(`/api/channels/${channel.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        const data = await response.json()
+        setError(channelErrorMessage(data.error))
+        haptic('error')
+        return
+      }
+      haptic('success')
+      onChanged()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function disconnect() {
+    if (!window.confirm('Отключить канал и его расписания? История публикаций сохранится.')) return
+    setSaving(true)
+    setError(null)
+    try {
+      const response = await apiFetch(`/api/channels/${channel.id}`, { method: 'DELETE' })
+      if (!response.ok) throw new Error('disconnect_failed')
+      haptic('success')
+      onChanged()
+    } catch {
+      setError('Не удалось отключить канал.')
+      haptic('error')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -141,14 +182,14 @@ function ChannelCard({ channel, onChanged }: { channel: Channel; onChanged: () =
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="truncate text-[13px] font-medium text-foreground">
-            {channel.title || channel.chat_id}
+            {channel.telegram_title || channel.title || channel.chat_id}
           </span>
           <span className="truncate text-[11px] text-muted-foreground">
             {channel.chat_id} · {channel.published_posts} постов · {channel.active_schedules} слот(ов)
           </span>
         </div>
-        <StatusPill tone={channel.is_active ? 'green' : 'blue'}>
-          {channel.is_active ? 'активен' : 'выкл'}
+        <StatusPill tone={channel.is_verified && channel.bot_can_post ? 'green' : 'blue'}>
+          {channel.is_verified && channel.bot_can_post ? 'проверен' : 'не проверен'}
         </StatusPill>
         <button
           type="button"
@@ -170,6 +211,20 @@ function ChannelCard({ channel, onChanged }: { channel: Channel; onChanged: () =
 
       {open ? (
         <div className="flex flex-col gap-4 border-t border-border p-4">
+          <div className="rounded-lg border border-border bg-white/[0.03] p-3 text-[12px] text-muted-foreground">
+            <p>Telegram ID: {channel.telegram_chat_id ?? 'не определён'}</p>
+            <p>Право публикации: {channel.bot_can_post ? 'есть' : 'нет'}</p>
+            <p>Проверен: {channel.verified_at ? new Date(channel.verified_at).toLocaleString('ru-RU') : 'никогда'}</p>
+          </div>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => patch({ reverify: true })}
+            className="btn-outline-green pressable px-3 py-2 text-[12px] disabled:opacity-50"
+          >
+            Проверить канал и права бота
+          </button>
+          {error ? <p className="text-[12px] text-destructive">{error}</p> : null}
           <div className="flex items-center justify-between">
             <span className="text-[13px] text-foreground">Канал активен</span>
             <Toggle
@@ -180,6 +235,31 @@ function ChannelCard({ channel, onChanged }: { channel: Channel; onChanged: () =
               }}
               label="Активность канала"
             />
+          </div>
+
+          <div className="grid gap-2">
+            <label className="grid gap-1 text-[12px] text-muted-foreground">
+              Отображаемое название
+              <input value={title} onChange={(e) => setTitle(e.target.value)} className="rounded-lg border border-border bg-muted px-3 py-2 text-foreground" />
+            </label>
+            <label className="grid gap-1 text-[12px] text-muted-foreground">
+              Тема по умолчанию
+              <input value={topic} onChange={(e) => setTopic(e.target.value)} className="rounded-lg border border-border bg-muted px-3 py-2 text-foreground" />
+            </label>
+            <label className="grid gap-1 text-[12px] text-muted-foreground">
+              Режим по умолчанию
+              <select value={mode} onChange={(e) => setMode(e.target.value)} className="rounded-lg border border-border bg-muted px-3 py-2 text-foreground">
+                <option value="normal">Стандарт</option>
+                <option value="short">Коротко</option>
+                <option value="long">Лонгрид</option>
+                <option value="funny">Юмор</option>
+                <option value="wow">Вау</option>
+                <option value="strict">Строго</option>
+              </select>
+            </label>
+            <button type="button" disabled={saving || !topic.trim()} onClick={() => patch({ title, topic, mode })} className="btn-blue pressable px-3 py-2 text-[12px] disabled:opacity-50">
+              Сохранить настройки
+            </button>
           </div>
 
           <div className="flex flex-col gap-2">
@@ -216,10 +296,33 @@ function ChannelCard({ channel, onChanged }: { channel: Channel; onChanged: () =
             </span>
             <TopicPool channelId={channel.id} />
           </div>
+
+          <button
+            type="button"
+            disabled={saving || !channel.is_active}
+            onClick={disconnect}
+            className="pressable flex items-center justify-center gap-2 rounded-lg border border-destructive/30 px-3 py-2 text-[12px] text-destructive disabled:opacity-40"
+          >
+            <X size={14} aria-hidden="true" />
+            Отключить канал
+          </button>
         </div>
       ) : null}
     </div>
   )
+}
+
+function channelErrorMessage(code: string): string {
+  const messages: Record<string, string> = {
+    invalid_publication_target: 'Укажите @username канала или приватный ID, начинающийся с -100. Личный ID использовать нельзя.',
+    channel_not_found: 'Канал не найден. Проверьте адрес и добавьте бота в канал.',
+    target_not_channel: 'Это не Telegram-канал. Группы и личные чаты не поддерживаются.',
+    bot_not_admin: 'Бот найден, но не назначен администратором канала.',
+    bot_cannot_post: 'У бота нет права публиковать сообщения в этом канале.',
+    permission_check_failed: 'Telegram не позволил проверить права бота. Проверьте его участие в канале.',
+    bridge_unavailable: 'Бот временно недоступен. Попробуйте ещё раз.',
+  }
+  return messages[code] || 'Не удалось проверить канал.'
 }
 
 export default function ChannelsPage() {
@@ -245,11 +348,7 @@ export default function ChannelsPage() {
       })
       if (!res.ok) {
         const data = await res.json()
-        setError(
-          data.error === 'invalid_chat_id'
-            ? 'Неверный формат. Укажите @username канала или его числовой ID.'
-            : 'Не удалось добавить канал.',
-        )
+        setError(channelErrorMessage(data.error))
         haptic('error')
         return
       }
@@ -288,7 +387,7 @@ export default function ChannelsPage() {
         {showForm ? (
           <div className="glass-strong flex flex-col gap-3 p-4">
             <label className="flex flex-col gap-1.5">
-              <span className="text-[12px] font-medium text-muted-foreground">Канал (@username или ID)</span>
+              <span className="text-[12px] font-medium text-muted-foreground">Канал (@username или ID вида -100…)</span>
               <input
                 type="text"
                 value={chatId}
@@ -352,7 +451,6 @@ export default function ChannelsPage() {
         )}
       </div>
 
-      <BottomNav />
     </div>
   )
 }

@@ -2,9 +2,8 @@
 
 import { useState } from 'react'
 import useSWR from 'swr'
-import { KeyRound, Plus, Trash2, ExternalLink } from 'lucide-react'
+import { KeyRound, Plus, Trash2, ExternalLink, ArrowUp, ArrowDown } from 'lucide-react'
 import { PageHeader, Card, Toggle, StatusPill } from '@/components/ui'
-import { BottomNav } from '@/components/bottom-nav'
 import { ProviderMark } from '@/components/provider-mark'
 import { PROVIDERS_CATALOG, providerById } from '@/lib/providers-catalog'
 
@@ -84,6 +83,27 @@ export default function KeysPage() {
     mutate()
   }
 
+  async function moveKey(index: number, direction: -1 | 1) {
+    const otherIndex = index + direction
+    if (!keys[index] || !keys[otherIndex]) return
+    haptic('light')
+    const current = keys[index]
+    const other = keys[otherIndex]
+    await Promise.all([
+      apiFetch(`/api/keys/${current.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priority: otherIndex }),
+      }),
+      apiFetch(`/api/keys/${other.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priority: index }),
+      }),
+    ])
+    await mutate()
+  }
+
   return (
     <div className="flex min-h-dvh flex-col pb-20">
       <PageHeader
@@ -104,7 +124,7 @@ export default function KeysPage() {
         }
       />
 
-      <main className="fade-up flex flex-col gap-3 px-5 py-6">
+      <div className="fade-up flex flex-col gap-3 px-5 py-6">
         {showForm ? (
           <Card className="flex flex-col gap-3">
             <span className="text-[12px] font-medium text-muted-foreground">Новый ключ</span>
@@ -215,13 +235,13 @@ export default function KeysPage() {
           <Card className="flex flex-col items-center gap-2 py-8 text-center">
             <KeyRound size={28} className="text-muted-foreground" aria-hidden="true" />
             <p className="text-sm text-muted-foreground">
-              Ключей пока нет. Добавьте свой API-ключ — генерация будет идти через него без лимитов.
+              Ключей пока нет. Добавьте свой API-ключ — расход и лимиты зависят от выбранного провайдера.
             </p>
           </Card>
         ) : null}
 
         <ul className="flex flex-col gap-2">
-          {keys.map((k) => {
+          {keys.map((k, index) => {
             const kdef = providerById(k.provider)
             return (
               <li key={k.id}>
@@ -239,6 +259,14 @@ export default function KeysPage() {
                     </span>
                   </div>
                   <Toggle checked={k.is_active} onChange={(v) => toggleKey(k.id, v)} label={`Ключ ${k.key_hint}`} />
+                  <div className="flex flex-col">
+                    <button type="button" onClick={() => moveKey(index, -1)} disabled={index === 0} aria-label="Поднять приоритет" className="p-1 text-muted-foreground disabled:opacity-20">
+                      <ArrowUp size={13} aria-hidden="true" />
+                    </button>
+                    <button type="button" onClick={() => moveKey(index, 1)} disabled={index === keys.length - 1} aria-label="Опустить приоритет" className="p-1 text-muted-foreground disabled:opacity-20">
+                      <ArrowDown size={13} aria-hidden="true" />
+                    </button>
+                  </div>
                   <button
                     type="button"
                     onClick={() => deleteKey(k.id)}
@@ -257,9 +285,7 @@ export default function KeysPage() {
           Ключи шифруются (AES-256) и используются только для генерации ваших постов. Приоритет — сверху вниз;
           если ключ недоступен, система переключится на следующий.
         </p>
-      </main>
-
-      <BottomNav />
+      </div>
     </div>
   )
 }

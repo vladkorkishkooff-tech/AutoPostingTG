@@ -3,6 +3,7 @@ import { sql } from '@/lib/db'
 import { encryptSecret, keyHint } from '@/lib/crypto'
 import { providerById } from '@/lib/providers-catalog'
 import { getAuthUser, unauthorized } from '@/lib/auth'
+import { normalisePublicHttpsBaseUrl } from '@/lib/url-security'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,11 +30,11 @@ export async function POST(request: Request) {
     const body = await request.json()
     const provider = String(body.provider || '').trim()
     const apiKey = String(body.apiKey || '').trim()
-    const model = body.model ? String(body.model).trim() : null
-    const label = body.label ? String(body.label).trim() : null
+    const model = body.model ? String(body.model).trim().slice(0, 160) : null
+    const label = body.label ? String(body.label).trim().slice(0, 80) : null
     let baseUrl = body.baseUrl ? String(body.baseUrl).trim() : null
 
-    if (!provider || !apiKey) {
+    if (!provider || apiKey.length < 8 || apiKey.length > 10_000) {
       return NextResponse.json({ error: 'provider and apiKey are required' }, { status: 400 })
     }
     const def = providerById(provider)
@@ -41,7 +42,14 @@ export async function POST(request: Request) {
     if (def.needsBaseUrl && !baseUrl) {
       return NextResponse.json({ error: 'baseUrl is required for custom provider' }, { status: 400 })
     }
+    if (def.needsBaseUrl && !model) {
+      return NextResponse.json({ error: 'model is required for custom provider' }, { status: 400 })
+    }
     if (!baseUrl) baseUrl = def.baseUrl ?? null
+    if (baseUrl) {
+      baseUrl = normalisePublicHttpsBaseUrl(baseUrl)
+      if (!baseUrl) return NextResponse.json({ error: 'baseUrl must be a public HTTPS URL' }, { status: 400 })
+    }
 
     const inserted = (await sql`
       INSERT INTO api_keys (user_id, provider, model, label, base_url, encrypted_key, key_hint, priority)
@@ -55,7 +63,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ key: inserted[0] })
   } catch (error) {
-    console.error('[v0] keys POST error:', error)
+    console.error('[keys] POST error:', error)
     return NextResponse.json({ error: 'db_error' }, { status: 500 })
   }
 }

@@ -1,0 +1,17 @@
+services:
+  bot:
+    environment:
+      BRIDGE_PORT: "8081"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --protocol http2 --url http://bot:8081
+    environment:
+      HTTPS_PROXY: http://host.docker.internal:10809
+      HTTP_PROXY: http://host.docker.internal:10809
+      NO_PROXY: bot,localhost,127.0.0.1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - bot
+    restart: unless-stopped

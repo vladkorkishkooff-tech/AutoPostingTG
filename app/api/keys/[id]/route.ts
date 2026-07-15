@@ -10,17 +10,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (!user) return unauthorized()
     const { id } = await params
     const keyId = Number(id)
-    if (!Number.isFinite(keyId)) return NextResponse.json({ error: 'bad id' }, { status: 400 })
+    if (!Number.isSafeInteger(keyId) || keyId <= 0) return NextResponse.json({ error: 'bad_id' }, { status: 400 })
     const body = await request.json()
 
     if (typeof body.isActive === 'boolean') {
-      await sql`UPDATE api_keys SET is_active = ${body.isActive} WHERE id = ${keyId} AND user_id = ${user.userId}`
+      const rows = await sql`UPDATE api_keys SET is_active = ${body.isActive}, updated_at = now() WHERE id = ${keyId} AND user_id = ${user.userId} RETURNING id`
+      if (!rows.length) return NextResponse.json({ error: 'not_found' }, { status: 404 })
     }
-    if (typeof body.priority === 'number') {
-      await sql`UPDATE api_keys SET priority = ${body.priority} WHERE id = ${keyId} AND user_id = ${user.userId}`
+    if (typeof body.priority === 'number' && Number.isSafeInteger(body.priority) && body.priority >= 0 && body.priority <= 1000) {
+      const rows = await sql`UPDATE api_keys SET priority = ${body.priority}, updated_at = now() WHERE id = ${keyId} AND user_id = ${user.userId} RETURNING id`
+      if (!rows.length) return NextResponse.json({ error: 'not_found' }, { status: 404 })
     }
     if (typeof body.model === 'string') {
-      await sql`UPDATE api_keys SET model = ${body.model} WHERE id = ${keyId} AND user_id = ${user.userId}`
+      const model = body.model.trim().slice(0, 160)
+      const rows = await sql`UPDATE api_keys SET model = ${model || null}, updated_at = now() WHERE id = ${keyId} AND user_id = ${user.userId} RETURNING id`
+      if (!rows.length) return NextResponse.json({ error: 'not_found' }, { status: 404 })
     }
     return NextResponse.json({ ok: true })
   } catch (error) {
@@ -35,8 +39,9 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     if (!user) return unauthorized()
     const { id } = await params
     const keyId = Number(id)
-    if (!Number.isFinite(keyId)) return NextResponse.json({ error: 'bad id' }, { status: 400 })
-    await sql`DELETE FROM api_keys WHERE id = ${keyId} AND user_id = ${user.userId}`
+    if (!Number.isSafeInteger(keyId) || keyId <= 0) return NextResponse.json({ error: 'bad_id' }, { status: 400 })
+    const rows = await sql`DELETE FROM api_keys WHERE id = ${keyId} AND user_id = ${user.userId} RETURNING id`
+    if (!rows.length) return NextResponse.json({ error: 'not_found' }, { status: 404 })
     return NextResponse.json({ ok: true })
   } catch (error) {
     console.error('[v0] keys DELETE error:', error)

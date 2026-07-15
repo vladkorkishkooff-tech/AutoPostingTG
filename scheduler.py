@@ -5,7 +5,8 @@
    в очередь (posts.status = 'queued'), чтобы владелец успел посмотреть
    и при необходимости отклонить/поправить его в Mini App.
 2. Публикация: в момент слота публикует пост из очереди (queued/approved)
-   или генерирует новый, если очередь пуста либо пост отклонён.
+   или генерирует новый, только если очередь пуста. Отклонённый пост отменяет
+   конкретный слот и никогда не заменяется автоматически.
 
 Тема слота: schedules.topic перекрывает channels.topic. Если у канала
 есть активный пул тем (topic_pool), тема берётся из него по ротации.
@@ -42,10 +43,13 @@ def _schedule_rows_query() -> str:
         SELECT s.id AS schedule_id, s.post_time, s.days_of_week, s.timezone,
                COALESCE(s.topic, c.topic) AS topic,
                COALESCE(s.mode, c.mode) AS mode,
-               c.id AS channel_id, c.chat_id, c.image_policy
+               c.id AS channel_id, c.chat_id, c.image_policy, c.user_id,
+               c.title AS channel_title, c.telegram_chat_id, c.telegram_title,
+               c.telegram_username, c.verified_at, u.telegram_id AS owner_telegram_id
         FROM schedules s
         JOIN channels c ON c.id = s.channel_id
-        WHERE s.is_active AND c.is_active
+        JOIN users u ON u.id = c.user_id
+        WHERE s.is_active AND c.is_active AND c.is_verified AND c.bot_can_post
     """
 
 
@@ -210,9 +214,20 @@ async def run_scheduler(pool, publish_fn, prepare_fn=None) -> None:
                 )
                 result = await _publish_with_retries(publish_fn, item)
                 ok = bool(getattr(result, "ok", False)) if result is not None else False
+                outcome = getattr(result, "outcome", "failed") if result is not None else "failed"
+                message_id = getattr(result, "message_id", None) if result is not None else None
+                # A claimed run is only successful after Telegram returned and
+                # the exact target message was persisted. Cancellation is a
+                # separate truthful terminal state.
+                if outcome == "cancelled":
+                    slot_status = "cancelled"
+                elif ok and outcome == "published" and message_id is not None:
+                    slot_status = "done"
+                else:
+                    slot_status = "failed"
                 try:
                     await db.mark_slot_status(
-                        pool, item["schedule_id"], slot_key, "done" if ok else "failed"
+                        pool, item["schedule_id"], slot_key, slot_status
                     )
                 except Exception:
                     logger.warning("mark_slot_status failed", exc_info=True)

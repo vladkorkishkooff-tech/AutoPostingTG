@@ -12,6 +12,8 @@ type Schedule = {
   post_time: string
   timezone: string
   is_active: boolean
+  is_verified: boolean
+  bot_can_post: boolean
   chat_id: string
   channel_title: string | null
   topic: string
@@ -25,6 +27,8 @@ type Channel = {
   chat_id: string
   title: string | null
   is_active: boolean
+  is_verified: boolean
+  bot_can_post: boolean
 }
 
 const MODES = [
@@ -32,27 +36,30 @@ const MODES = [
   { id: 'normal', label: 'Стандарт' },
   { id: 'short', label: 'Коротко' },
   { id: 'long', label: 'Лонгрид' },
-  { id: 'fun', label: 'Юмор' },
+  { id: 'funny', label: 'Юмор' },
 ]
 
 export default function SchedulePage() {
   const { data, mutate, isLoading } = useSWR<{ schedules: Schedule[] }>('/api/schedules', fetcher)
-  const { data: channelsData } = useSWR<{ channels: Channel[] }>('/api/channels', fetcher)
+  const { data: channelsData, mutate: mutateChannels } = useSWR<{ channels: Channel[] }>('/api/channels', fetcher)
   const [time, setTime] = useState('11:00')
   const [slotTopic, setSlotTopic] = useState('')
   const [slotMode, setSlotMode] = useState('')
   const [channelId, setChannelId] = useState<number | ''>('')
   const [showOptions, setShowOptions] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const channels = (channelsData?.channels ?? []).filter((c) => c.is_active)
-  const multiChannel = channels.length > 1
+  const channels = (channelsData?.channels ?? []).filter(
+    (c) => c.is_active && c.is_verified && c.bot_can_post,
+  )
 
   async function addSchedule() {
     haptic('medium')
     setSaving(true)
+    setError(null)
     try {
-      await apiFetch('/api/schedules', {
+      const response = await apiFetch('/api/schedules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -62,6 +69,12 @@ export default function SchedulePage() {
           channelId: channelId || undefined,
         }),
       })
+      if (!response.ok) {
+        const data = await response.json()
+        setError(data.error === 'no_verified_channel' ? 'Сначала добавьте и проверьте канал.' : data.error === 'invalid_time' ? 'Укажите настоящее время от 00:00 до 23:59.' : 'Не удалось добавить слот.')
+        haptic('error')
+        return
+      }
       haptic('success')
       setSlotTopic('')
       setSlotMode('')
@@ -73,11 +86,21 @@ export default function SchedulePage() {
 
   async function toggleSchedule(id: number, isActive: boolean) {
     haptic('light')
-    await apiFetch(`/api/schedules/${id}`, {
+    setError(null)
+    const response = await apiFetch(`/api/schedules/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ isActive }),
     })
+    if (!response.ok) {
+      const data = await response.json()
+      setError(data.error === 'bot_cannot_post' || data.error === 'bot_not_admin'
+        ? 'Расписание не включено: у бота больше нет права публиковать в канал.'
+        : 'Не удалось изменить слот. Канал и права бота будут проверены повторно.')
+      haptic('error')
+      await mutateChannels()
+      return
+    }
     mutate()
   }
 
@@ -123,13 +146,13 @@ export default function SchedulePage() {
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:flex-nowrap">
             <input
               type="time"
               value={time}
               onChange={(e) => setTime(e.target.value)}
               aria-label="Время публикации"
-              className="flex-1 rounded-lg border border-border bg-muted px-4 py-2.5 text-sm outline-none focus:border-primary/50"
+              className="min-w-0 flex-[1_1_120px] rounded-lg border border-border bg-muted px-3 py-2.5 text-sm outline-none focus:border-primary/50"
             />
             <button
               type="button"
@@ -151,16 +174,17 @@ export default function SchedulePage() {
               type="button"
               onClick={addSchedule}
               disabled={saving}
-              className="btn-green pressable flex items-center gap-1.5 px-4 py-2.5 text-sm disabled:opacity-50"
+              className="btn-green pressable flex min-w-0 items-center gap-1.5 px-3 py-2.5 text-sm disabled:opacity-50"
             >
               <Plus size={16} aria-hidden="true" />
               Добавить
             </button>
           </div>
+          {error ? <p className="text-[12px] text-destructive">{error}</p> : null}
 
           {showOptions ? (
             <div className="flex flex-col gap-3 border-t border-border pt-3">
-              {multiChannel ? (
+              {channels.length > 0 ? (
                 <label className="flex flex-col gap-1.5">
                   <span className="text-[12px] font-medium text-muted-foreground">Канал</span>
                   <select
@@ -168,7 +192,7 @@ export default function SchedulePage() {
                     onChange={(e) => setChannelId(e.target.value ? Number(e.target.value) : '')}
                     className="rounded-lg border border-border bg-muted px-3 py-2.5 text-sm outline-none focus:border-primary/50"
                   >
-                    <option value="">Первый канал</option>
+                    <option value="">Выберите канал</option>
                     {channels.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.title || c.chat_id}
@@ -191,7 +215,7 @@ export default function SchedulePage() {
               </label>
               <div className="flex flex-col gap-1.5">
                 <span className="text-[12px] font-medium text-muted-foreground">Режим текста</span>
-                <div className="grid grid-cols-5 gap-1.5" role="radiogroup" aria-label="Режим текста слота">
+                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-5" role="radiogroup" aria-label="Режим текста слота">
                   {MODES.map((m) => (
                     <button
                       key={m.id}
@@ -262,7 +286,7 @@ export default function SchedulePage() {
                     <span className="mt-1 w-px flex-1 bg-border" aria-hidden="true" />
                   ) : null}
                 </div>
-                <div className="glass flex flex-1 items-center gap-3 p-2.5">
+                <div className="glass flex min-w-0 flex-1 flex-wrap items-center gap-2 p-2.5 sm:flex-nowrap sm:gap-3">
                   <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="truncate text-[13px] text-foreground">
                       {s.slot_topic || s.topic}

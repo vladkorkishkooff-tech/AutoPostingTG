@@ -1,8 +1,12 @@
 import os
+import re
 from dataclasses import dataclass
 from typing import Iterable
 
 from dotenv import load_dotenv
+
+
+_CHANNEL_TARGET_RE = re.compile(r"^(?:@[A-Za-z0-9_]{5,32}|-100\d{6,})$")
 
 
 def _getenv(name: str, default: str = "") -> str:
@@ -58,6 +62,7 @@ class AppConfig:
     bot_token: str
     channel_id: str
     channel_url: str
+    web_app_url: str
     telegram_proxy_url: str
     outbound_proxy_url: str
     default_topic: str
@@ -100,7 +105,7 @@ class AppConfig:
 
     @property
     def has_required_telegram_config(self) -> bool:
-        return bool(self.bot_token and self.channel_id)
+        return bool(self.bot_token and _CHANNEL_TARGET_RE.fullmatch(self.channel_id))
 
 
 def load_config() -> AppConfig:
@@ -111,6 +116,7 @@ def load_config() -> AppConfig:
         bot_token=_getenv("BOT_TOKEN"),
         channel_id=_getenv("CHANNEL_ID") or _getenv("TARGET_CHANNEL"),
         channel_url=_getenv("CHANNEL_URL"),
+        web_app_url=_getenv("WEB_APP_URL").rstrip("/"),
         telegram_proxy_url=_getenv("TELEGRAM_PROXY_URL"),
         outbound_proxy_url=_getenv("OUTBOUND_PROXY_URL") or _getenv("TELEGRAM_PROXY_URL"),
         default_topic=_getenv("DEFAULT_TOPIC", "наука"),
@@ -126,7 +132,7 @@ def load_config() -> AppConfig:
         admin_user_ids=_get_ids("ADMIN_USER_IDS"),
         llm_provider_order=_get_list(
             "LLM_PROVIDER_ORDER",
-            ["groq", "mistral", "gemini", "nvidia", "openrouter", "custom", "v0"],
+            ["groq", "mistral", "gemini", "nvidia", "openrouter", "custom"],
         ),
         request_timeout_seconds=_get_int("REQUEST_TIMEOUT_SECONDS", 30),
         max_image_bytes=_get_int("MAX_IMAGE_BYTES", 8_000_000),
@@ -148,12 +154,14 @@ def load_config() -> AppConfig:
         mistral_api_key=_getenv("MISTRAL_API_KEY"),
         mistral_models=_get_list("MISTRAL_MODELS", [_getenv("MISTRAL_MODEL", "mistral-small-latest")]),
         gemini_api_key=_getenv("GEMINI_API_KEY"),
-        gemini_api_keys=[
-            key.strip()
-            for key in (_getenv("GEMINI_API_KEYS") or _getenv("GEMINI_API_KEY")).split(",")
-            if key.strip()
-        ],
-        gemini_models=_get_list("GEMINI_MODELS", [_getenv("GEMINI_MODEL", "gemini-2.0-flash")]),
+        gemini_api_keys=list(
+            dict.fromkeys(
+                key.strip()
+                for key in (_getenv("GEMINI_API_KEYS") or _getenv("GEMINI_API_KEY")).split(",")
+                if key.strip()
+            )
+        ),
+        gemini_models=_get_list("GEMINI_MODELS", [_getenv("GEMINI_MODEL", "gemini-3.5-flash")]),
         nvidia_api_key=_getenv("NVIDIA_API_KEY"),
         nvidia_models=_get_list(
             "NVIDIA_MODELS",

@@ -3,7 +3,7 @@
 import useSWR from 'swr'
 import { PageHeader, Card, StatCard } from '@/components/ui'
 
-import { swrFetcher as fetcher, apiFetch } from '@/lib/client'
+import { swrFetcher as fetcher } from '@/lib/client'
 
 type UsageData = {
   totals: {
@@ -88,7 +88,7 @@ function MembersCard({ series }: { series: AnalyticsData['memberSeries'] }) {
 }
 
 export default function StatsPage() {
-  const { data, isLoading } = useSWR<UsageData>('/api/usage', fetcher, { refreshInterval: 30000 })
+  const { data, isLoading, error } = useSWR<UsageData>('/api/usage', fetcher, { refreshInterval: 30000 })
   const { data: analytics } = useSWR<AnalyticsData>('/api/analytics', fetcher, { refreshInterval: 60000 })
 
   const totals = data?.totals
@@ -100,10 +100,11 @@ export default function StatsPage() {
   const maxDaily = Math.max(1, ...(data?.daily ?? []).map((d) => Number(d.posts)))
 
   return (
-    <main>
+    <div>
       <PageHeader title="Статистика" subtitle="Использование провайдеров и активность" />
 
       <div className="fade-up flex flex-col gap-4 px-5 py-6">
+      {error ? <Card className="border-destructive/40"><p role="alert" className="text-sm text-destructive">Статистика временно недоступна: сервер вернул ошибку. Данные не подменены нулями.</p></Card> : null}
       <div className="grid grid-cols-2 gap-3">
         <StatCard label="Генераций (30 дн)" value={totals ? String(totals.generations) : '—'} />
         <StatCard label="Успешность" value={successRate !== null ? `${successRate}%` : '—'} />
@@ -204,6 +205,6 @@ export default function StatsPage() {
         </Card>
       ) : null}
       </div>
-    </main>
+    </div>
   )
 }
