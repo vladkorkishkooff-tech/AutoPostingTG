@@ -363,7 +363,13 @@ async def publish_post(
         owner_tg_id = owner_telegram_id or next(iter(config.admin_user_ids), 0)
         owner_id = await db.ensure_user(pool, owner_tg_id)
         channel_db_id = await db.ensure_channel(
-            pool, owner_id, str(chat_id), topic=normalized_topic, mode=normalized_mode
+            pool,
+            owner_id,
+            str(chat_id),
+            topic=normalized_topic,
+            mode=normalized_mode,
+            telegram_chat_id=int(verification["chatId"]),
+            telegram_username=verification.get("username"),
         )
         await db.update_channel_verification(
             pool,
@@ -612,7 +618,13 @@ async def publish_custom_text(
         except Exception:
             logger.exception("Failed to load custom publication providers")
         channel_db_id = await db.ensure_channel(
-            pool, owner_id, str(chat_id), topic=normalized_topic, mode=normalized_mode
+            pool,
+            owner_id,
+            str(chat_id),
+            topic=normalized_topic,
+            mode=normalized_mode,
+            telegram_chat_id=int(verification["chatId"]),
+            telegram_username=verification.get("username"),
         )
         await db.update_channel_verification(
             pool,

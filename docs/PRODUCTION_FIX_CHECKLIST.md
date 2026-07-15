@@ -12,6 +12,8 @@
 ## 1. Замечания владельца
 
 - [x] Положительный Telegram user ID нельзя сохранить или выбрать как канал.
+- [x] `@username` и `-100...` одного Telegram-канала объединяются по стабильному
+  Telegram chat ID и не появляются двумя вариантами в селекторе.
 - [x] Канал сохраняется только после проверки `chat.type == channel`, прав
   администратора и `can_post_messages`.
 - [x] Старые некорректные channel rows карантинируются миграцией 002.
@@ -49,9 +51,9 @@
 - [x] Автоматический blind retry после неопределённого Telegram timeout не
   выполняется, чтобы не создавать дубль; решение остаётся владельцу.
 - [x] Два параллельных claim одного слота и mismatch channel покрыты тестами.
-- [ ] Выполнить одну намеренную публикацию в тестовый канал и открыть сохранённую
+- [x] Выполнить одну намеренную публикацию в тестовый канал и открыть сохранённую
   ссылку на сообщение.
-- [ ] Выполнить один реальный schedule slot и сверить Telegram, posts, slot_runs,
+- [x] Выполнить один реальный schedule slot и сверить Telegram, posts, slot_runs,
   уведомление и Stats.
 
 ## 3. Генерация текста
@@ -118,7 +120,7 @@
 ## 7. Reproducible release
 
 - [x] Python runtime/dev dependencies pinned separately.
-- [x] Additive migrations 001–005 и idempotent advisory-lock runner.
+- [x] Additive migrations 001–006 и idempotent advisory-lock runner.
 - [x] Docker entrypoint выполняет production check и migrations до старта.
 - [x] CI: Python, web, migrations twice, audit, Docker/pip check и gitleaks.
 - [x] Health/config endpoints содержат release version и commit SHA.
@@ -128,18 +130,18 @@
 
 ## 8. Финальные quality gates
 
-- [x] Python compile и 65 unit/integration tests.
-- [x] Mini App lint, TypeScript и 28 unit/API tests.
+- [x] Python compile и 68 unit/integration tests.
+- [x] Mini App lint, TypeScript и 29 unit/API tests.
 - [x] Next.js production build.
-- [x] Fresh PostgreSQL: migrations 001–005 применены дважды.
+- [x] Fresh PostgreSQL: migrations 001–006 применены дважды.
 - [x] Clean Docker image build и `pip check` внутри образа.
 - [x] Production dependency audit: zero known high vulnerabilities.
 - [x] Browser E2E: mobile Generator -> batch -> Queue -> regenerate -> stock.
 - [x] После последнего изменения все гейты повторены 2026-07-15.
 
-Последний локальный отчёт: Python `65 passed`; Vitest `28 passed`; ESLint без
+Последний локальный отчёт: Python `68 passed`; Vitest `29 passed`; ESLint без
 warning; TypeScript без ошибок; Next.js production build успешен; migrations
-001–005 дали `5 applied`, затем `0 applied`; clean Docker build и `pip check`
+001–006 дали `6 applied`, затем `0 applied`; clean Docker build и `pip check`
 успешны; `pnpm audit --prod` не нашёл уязвимостей; mobile Edge E2E вернул
 `batchDefaultOff=true`, `generatorStockCandidates=3`, `generated=4`,
 `queued=2`, `regenerated=true`, `stockAttached=true` без console errors.
@@ -152,8 +154,9 @@ warning; TypeScript без ошибок; Next.js production build успешен
 - [ ] `/preview <тема>` в личном чате, без публикации.
 - [ ] Открыть Mini App из Telegram и убедиться, что user ID не виден как канал.
 - [ ] Создать один пост, перегенерировать его, выбрать точное фото.
-- [ ] Опубликовать ровно один явно подтверждённый пост.
-- [ ] Создать один slot на 5–10 минут вперёд и дождаться ровно одного сообщения.
+- [x] Опубликовать ровно один явно подтверждённый пост (`@nauchpuk/165`).
+- [x] Создать один slot на 5–10 минут вперёд и дождаться ровно одного сообщения
+  (`@nauchpuk/166`); тестовый slot после этого отключён.
 - [ ] Временно снять `can_post_messages` и убедиться, что статус становится
   `failed`, а не `published`; затем вернуть право.
 - [ ] Повторить channel isolation для второго канала, если покупатель будет

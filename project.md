@@ -62,6 +62,9 @@
 
 ## Change Log
 
+- 2026-07-15: Production acceptance published one manual and one scheduled post,
+  then exposed and fixed duplicate channel identity for `@username`/`-100...`;
+  History now links directly to the confirmed Telegram message.
 - 2026-07-15: Deduplicated NASA stock-image size renditions by archive asset ID
   so the three Mini App candidates are genuinely different images.
 - 2026-07-15: Added migration 005 and verified-target filters so legacy schedules,

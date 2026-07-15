@@ -24,7 +24,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const [post] = await sql`
       SELECT p.id, p.status, p.channel_id, p.topic, p.mode, p.text,
              p.image_url, p.media_type, p.scheduled_at,
-             coalesce(c.telegram_chat_id::text, c.chat_id) AS target_chat
+             c.chat_id AS target_chat
       FROM posts p
       JOIN channels c ON c.id = p.channel_id
       WHERE p.id = ${postId} AND c.user_id = ${user.userId}

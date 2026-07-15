@@ -34,7 +34,8 @@ export async function GET(request: Request) {
     const posts = await sql`
       SELECT p.id, p.channel_id, c.title AS channel_title, c.chat_id,
              p.topic, p.mode, p.text, p.image_url, p.image_source, p.status,
-             p.scheduled_at, p.published_at, p.telegram_message_id
+             p.scheduled_at, p.published_at, p.telegram_message_id,
+             p.telegram_chat_id, p.telegram_message_link
       FROM posts p
       JOIN channels c ON c.id = p.channel_id
       WHERE c.user_id = ${user.userId}

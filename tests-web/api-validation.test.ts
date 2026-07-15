@@ -67,6 +67,18 @@ describe('Mini App API validation', () => {
     expect(sqlMock).not.toHaveBeenCalled()
   })
 
+  it('exposes the confirmed Telegram message link in publication history', async () => {
+    let query = ''
+    sqlMock.mockImplementationOnce((strings: TemplateStringsArray) => {
+      query = strings.join(' ')
+      return Promise.resolve([])
+    })
+    const response = await getPosts(new Request('https://example.test/api/posts?status=published'))
+    expect(response.status).toBe(200)
+    expect(query).toContain('p.telegram_message_link')
+    expect(query).toContain('p.telegram_chat_id')
+  })
+
   it('stores a safe default mode for templates', async () => {
     let insertedValues: unknown[] = []
     sqlMock.mockImplementationOnce((_strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -110,5 +122,7 @@ describe('Mini App API validation', () => {
     expect(response.status).toBe(400)
     expect((await response.json()).error).toBe('channel_not_found')
     expect(query).toContain("chat_id ~ '^-100[0-9]{6,}$'")
+    expect(query).toContain('SELECT chat_id FROM channels')
+    expect(query).not.toContain('coalesce(telegram_chat_id')
   })
 })

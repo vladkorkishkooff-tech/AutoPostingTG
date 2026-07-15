@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import useSWR from 'swr'
 import Link from 'next/link'
 import Image from 'next/image'
-import { ShieldCheck, FileText } from 'lucide-react'
+import { ExternalLink, ShieldCheck, FileText } from 'lucide-react'
 import { PageHeader, Skeleton, EmptyState } from '@/components/ui'
 import { swrFetcher as fetcher, haptic } from '@/lib/client'
 
@@ -19,6 +19,8 @@ type Post = {
   image_url: string | null
   status: string
   published_at: string | null
+  telegram_message_id: number | null
+  telegram_message_link: string | null
 }
 
 type Channel = { id: number; title: string | null; chat_id: string; is_active: boolean }
@@ -137,7 +139,19 @@ export default function HistoryPage() {
                       <span className="text-[11px] text-primary">{post.topic}</span>
                       <span className="max-w-24 truncate text-[11px] text-muted-foreground">{post.channel_title || post.chat_id}</span>
                     </div>
-                    <ShieldCheck size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />
+                    {post.telegram_message_link ? (
+                      <a
+                        href={post.telegram_message_link}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] text-primary"
+                      >
+                        Открыть в Telegram
+                        <ExternalLink size={12} aria-hidden="true" />
+                      </a>
+                    ) : (
+                      <ShieldCheck size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />
+                    )}
                   </div>
                 </div>
               </article>

@@ -65,23 +65,77 @@ async def ensure_channel(
     title: str | None = None,
     topic: str = "наука",
     mode: str = "normal",
+    telegram_chat_id: int | None = None,
+    telegram_username: str | None = None,
 ) -> int:
     if not is_valid_channel_target(chat_id):
         raise ValueError("invalid_publication_target")
-    row = await pool.fetchrow(
-        """
-        INSERT INTO channels (user_id, chat_id, title, topic, mode)
-        VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (user_id, chat_id)
-        DO UPDATE SET title = COALESCE(EXCLUDED.title, channels.title)
-        RETURNING id
-        """,
-        user_id,
-        str(chat_id),
-        title,
-        topic,
-        mode,
-    )
+    # ``@username`` and ``-100...`` can name the same Telegram channel. Prefer
+    # the already configured canonical row by stable Telegram identity so a
+    # manual publish cannot silently create a second selectable channel.
+    if telegram_chat_id is not None:
+        existing = await pool.fetchrow(
+            """
+            SELECT id
+            FROM channels
+            WHERE user_id = $1
+              AND (
+                telegram_chat_id = $2
+                OR (
+                  $3::text IS NOT NULL
+                  AND (
+                    lower(telegram_username) = lower($3)
+                    OR lower(chat_id) = lower('@' || $3)
+                  )
+                )
+              )
+            ORDER BY (chat_id ~ '^@') DESC, is_verified DESC, id
+            LIMIT 1
+            """,
+            user_id,
+            telegram_chat_id,
+            telegram_username,
+        )
+        if existing:
+            return existing["id"]
+    try:
+        row = await pool.fetchrow(
+            """
+            INSERT INTO channels (
+                user_id, chat_id, title, topic, mode, telegram_chat_id, telegram_username
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (user_id, chat_id)
+            DO UPDATE SET title = COALESCE(EXCLUDED.title, channels.title),
+                          telegram_chat_id = COALESCE(EXCLUDED.telegram_chat_id, channels.telegram_chat_id),
+                          telegram_username = COALESCE(EXCLUDED.telegram_username, channels.telegram_username)
+            RETURNING id
+            """,
+            user_id,
+            str(chat_id),
+            title,
+            topic,
+            mode,
+            telegram_chat_id,
+            telegram_username,
+        )
+    except asyncpg.UniqueViolationError:
+        # A concurrent request may have inserted the other alias after the
+        # identity lookup. Resolve the winner instead of creating a duplicate.
+        if telegram_chat_id is None:
+            raise
+        row = await pool.fetchrow(
+            """
+            SELECT id FROM channels
+            WHERE user_id = $1 AND telegram_chat_id = $2
+            ORDER BY (chat_id ~ '^@') DESC, id
+            LIMIT 1
+            """,
+            user_id,
+            telegram_chat_id,
+        )
+        if not row:
+            raise
     return row["id"]
 
 
@@ -143,10 +197,31 @@ async def owner_channels(pool: asyncpg.Pool, user_id: int) -> list[dict]:
 async def channel_for_owner_target(
     pool: asyncpg.Pool, user_id: int, chat_id: str | int
 ) -> dict | None:
+    value = str(chat_id).strip()
+    numeric_id = int(value) if _PRIVATE_CHANNEL_RE.fullmatch(value) else None
+    username = value[1:] if _PUBLIC_CHANNEL_RE.fullmatch(value) else None
     row = await pool.fetchrow(
-        "SELECT id, chat_id FROM channels WHERE user_id = $1 AND chat_id = $2",
+        """
+        SELECT id, chat_id FROM channels
+        WHERE user_id = $1
+          AND (
+            chat_id = $2
+            OR ($3::bigint IS NOT NULL AND telegram_chat_id = $3)
+            OR (
+              $4::text IS NOT NULL
+              AND (
+                lower(telegram_username) = lower($4)
+                OR lower(chat_id) = lower('@' || $4)
+              )
+            )
+          )
+        ORDER BY (chat_id ~ '^@') DESC, is_verified DESC, id
+        LIMIT 1
+        """,
         user_id,
-        str(chat_id),
+        value,
+        numeric_id,
+        username,
     )
     return dict(row) if row else None
 

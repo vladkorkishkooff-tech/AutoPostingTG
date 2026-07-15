@@ -134,6 +134,8 @@ HMAC-подпись initData токеном бота и достаёт Telegram 
 - `004_rate_limits_and_query_indexes.sql` — распределённые API-лимиты и индексы.
 - `005_quarantine_invalid_publication_work.sql` — отключение legacy-слотов и
   Queue-записей, которые ссылаются не на проверенный Telegram-канал.
+- `006_merge_duplicate_telegram_channels.sql` — объединение `@username` и
+  `-100...` алиасов одного Telegram-канала по стабильному Telegram chat ID.
 
 Сначала применяйте их на отдельной Neon branch/staging-базе. Production entrypoint
 применит только ещё не записанные миграции под PostgreSQL advisory lock.

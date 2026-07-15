@@ -16,6 +16,51 @@ def test_channel_target_rejects_personal_and_group_ids():
     assert not db.is_valid_channel_target("science_daily")
 
 
+@pytest.mark.asyncio
+async def test_ensure_channel_reuses_stable_telegram_identity():
+    pool = SimpleNamespace(fetchrow=AsyncMock(return_value={"id": 4}))
+
+    channel_id = await db.ensure_channel(
+        pool,
+        7,
+        "-1001234567890",
+        telegram_chat_id=-1001234567890,
+        telegram_username="science_daily",
+    )
+
+    assert channel_id == 4
+    pool.fetchrow.assert_awaited_once()
+    assert "telegram_chat_id = $2" in pool.fetchrow.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_ensure_channel_persists_stable_identity_on_first_insert():
+    pool = SimpleNamespace(fetchrow=AsyncMock(side_effect=[None, {"id": 9}]))
+
+    channel_id = await db.ensure_channel(
+        pool,
+        7,
+        "@science_daily",
+        telegram_chat_id=-1001234567890,
+        telegram_username="science_daily",
+    )
+
+    assert channel_id == 9
+    insert_args = pool.fetchrow.await_args_list[1].args
+    assert "telegram_chat_id, telegram_username" in insert_args[0]
+    assert insert_args[6:] == (-1001234567890, "science_daily")
+
+
+@pytest.mark.asyncio
+async def test_owner_target_lookup_matches_numeric_alias_to_canonical_channel():
+    pool = SimpleNamespace(fetchrow=AsyncMock(return_value={"id": 4, "chat_id": "@science_daily"}))
+
+    channel = await db.channel_for_owner_target(pool, 7, "-1001234567890")
+
+    assert channel == {"id": 4, "chat_id": "@science_daily"}
+    assert pool.fetchrow.await_args.args[3] == -1001234567890
+
+
 def test_confirmed_message_requires_exact_channel():
     sent = SimpleNamespace(
         message_id=42,

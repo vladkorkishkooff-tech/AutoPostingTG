@@ -75,6 +75,8 @@ describe('manual and batch queue workflows', () => {
     const ownershipQuery = (sqlMock.mock.calls[0][0] as TemplateStringsArray).join(' ')
     expect(ownershipQuery).toContain('c.is_verified')
     expect(ownershipQuery).toContain('c.bot_can_post')
+    expect(ownershipQuery).toContain('c.chat_id AS target_chat')
+    expect(ownershipQuery).not.toContain('coalesce(c.telegram_chat_id')
     vi.unstubAllGlobals()
   })
 })
