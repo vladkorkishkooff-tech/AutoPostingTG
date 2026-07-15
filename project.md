@@ -62,6 +62,8 @@
 
 ## Change Log
 
+- 2026-07-15: Deduplicated NASA stock-image size renditions by archive asset ID
+  so the three Mini App candidates are genuinely different images.
 - 2026-07-15: Added migration 005 and verified-target filters so legacy schedules,
   queued posts, History and Stats cannot expose or execute personal Telegram IDs.
 - 2026-07-15: Added opt-in 2–5 batch generation with selected drafts going to Queue, Queue text regeneration/manual retry, server-side mode/format validation, database-backed rate limits, runtime custom-endpoint DNS checks, provider-key usage tracking, pinned Python dependencies, release metadata, and CI migration/Docker/secret gates.

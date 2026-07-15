@@ -2,6 +2,8 @@ from ai_gen import _parse_image_queries, _parse_image_search_plan
 from image_fetcher import (
     ImageResult,
     _fallback_queries,
+    _image_asset_key,
+    _image_url_is_excluded,
     _ordered_queries,
     _provider_names_for_query,
     _provider_is_paused,
@@ -252,3 +254,19 @@ def test_historical_images_do_not_rotate_away_from_best_query():
         "second subject",
         "third subject",
     ]
+
+
+def test_nasa_size_variants_share_one_asset_key():
+    medium = "https://images-assets.nasa.gov/image/PIA26305/PIA26305~medium.jpg"
+    thumb = "https://images-assets.nasa.gov/image/PIA26305/PIA26305~thumb.jpg"
+
+    assert _image_asset_key(medium) == _image_asset_key(thumb)
+    assert _image_url_is_excluded(thumb, {medium})
+
+
+def test_different_nasa_archive_images_remain_distinct():
+    first = "https://images-assets.nasa.gov/image/PIA26305/PIA26305~medium.jpg"
+    second = "https://images-assets.nasa.gov/image/PIA02982/PIA02982~small.jpg"
+
+    assert _image_asset_key(first) != _image_asset_key(second)
+    assert not _image_url_is_excluded(second, {first})

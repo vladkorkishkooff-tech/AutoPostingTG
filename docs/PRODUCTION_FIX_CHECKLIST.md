@@ -25,6 +25,8 @@
 - [x] Generator и Queue используют общий stock-search contract.
 - [x] Generator и Queue показывают до трёх разных stock-кандидатов для выбора;
   повторный поиск передаёт уже показанные URL в exclusions.
+- [x] NASA `medium/small/thumb` одного archive asset не считаются разными
+  фотографиями; варианты дедуплицируются по исходному NASA asset ID.
 - [x] AI-план фото сохраняет точный объект, фокусную деталь и обязательные
   термины; широкое фото отклоняется, если metadata не подтверждает детали.
 - [x] Есть regression fixtures для Titan methane rain, Olympus Mons и giant
@@ -126,7 +128,7 @@
 
 ## 8. Финальные quality gates
 
-- [x] Python compile и 63 unit/integration tests.
+- [x] Python compile и 65 unit/integration tests.
 - [x] Mini App lint, TypeScript и 28 unit/API tests.
 - [x] Next.js production build.
 - [x] Fresh PostgreSQL: migrations 001–005 применены дважды.
@@ -135,7 +137,7 @@
 - [x] Browser E2E: mobile Generator -> batch -> Queue -> regenerate -> stock.
 - [x] После последнего изменения все гейты повторены 2026-07-15.
 
-Последний локальный отчёт: Python `63 passed`; Vitest `28 passed`; ESLint без
+Последний локальный отчёт: Python `65 passed`; Vitest `28 passed`; ESLint без
 warning; TypeScript без ошибок; Next.js production build успешен; migrations
 001–005 дали `5 applied`, затем `0 applied`; clean Docker build и `pip check`
 успешны; `pnpm audit --prod` не нашёл уязвимостей; mobile Edge E2E вернул

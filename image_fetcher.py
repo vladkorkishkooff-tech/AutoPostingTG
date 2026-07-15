@@ -124,6 +124,32 @@ def _url_host(url: str) -> str:
     return urlparse(url).hostname or "invalid-host"
 
 
+def _image_asset_key(url: str) -> str:
+    """Collapse provider-specific size variants to one underlying asset.
+
+    NASA search returns ``~medium``, ``~small`` and ``~thumb`` links for the
+    same archive image. Treating those URLs as separate candidates made the
+    Mini App show three identical pictures. Other providers already return one
+    chosen rendition per search item, so their normalized URL remains exact.
+    """
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    path = parsed.path
+    if host.endswith("nasa.gov"):
+        path = re.sub(
+            r"~(?:orig|large|medium|small|thumb)(?=\.[A-Za-z0-9]+$)",
+            "",
+            path,
+            flags=re.IGNORECASE,
+        )
+    return f"{host}{path}"
+
+
+def _image_url_is_excluded(url: str, excluded_urls: set[str]) -> bool:
+    key = _image_asset_key(url)
+    return any(_image_asset_key(excluded) == key for excluded in excluded_urls)
+
+
 async def _is_public_image_url(url: str) -> bool:
     """Reject local/private destinations before downloading user-selected media."""
     parsed = urlparse(url)
@@ -376,7 +402,9 @@ async def fetch_nasa(
         )
         for link in links:
             url = link.get("href", "")
-            if url and link.get("render") == "image" and url not in excluded_urls:
+            if url and link.get("render") == "image" and not _image_url_is_excluded(
+                url, excluded_urls
+            ):
                 candidates.append(
                     ImageResult(
                         url=url,
