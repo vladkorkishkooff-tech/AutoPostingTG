@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     const limited = await rateLimit(user.userId, 'queue-create', 10)
     if (limited) return limited
 
-    let body: { channelId?: unknown; topic?: unknown; mode?: unknown; texts?: unknown }
+    let body: { channelId?: unknown; topic?: unknown; mode?: unknown; texts?: unknown; items?: unknown }
     try {
       body = await request.json()
     } catch {
@@ -52,13 +52,42 @@ export async function POST(request: Request) {
     const channelId = Number(body.channelId)
     const topic = String(body.topic ?? '').trim().slice(0, 120) || 'наука'
     const mode = String(body.mode ?? 'normal').trim().slice(0, 30) || 'normal'
-    const texts = Array.isArray(body.texts)
-      ? [...new Set(body.texts.map((value) => String(value ?? '').trim()).filter(Boolean))].slice(0, 5)
-      : []
-    if (!Number.isSafeInteger(channelId) || channelId <= 0 || texts.length === 0) {
+    const rawItems = Array.isArray(body.items)
+      ? body.items
+      : Array.isArray(body.texts)
+        ? body.texts.map((text) => ({ text }))
+        : []
+    const items: Array<{
+      text: string
+      imageUrl: string | null
+      imageSource: string | null
+      mediaType: 'photo' | null
+    }> = []
+    const seenTexts = new Set<string>()
+    for (const rawItem of rawItems) {
+      if (!rawItem || typeof rawItem !== 'object') continue
+      const item = rawItem as { text?: unknown; imageUrl?: unknown; imageSource?: unknown }
+      const text = String(item.text ?? '').trim()
+      if (!text || seenTexts.has(text)) continue
+      const imageUrl = typeof item.imageUrl === 'string' && item.imageUrl.trim() ? item.imageUrl.trim() : null
+      if (imageUrl && (imageUrl.length > 4_000 || !/^https?:\/\/[^\s]+$/i.test(imageUrl))) {
+        return NextResponse.json({ error: 'invalid_image_url' }, { status: 400 })
+      }
+      seenTexts.add(text)
+      items.push({
+        text,
+        imageUrl,
+        imageSource: imageUrl
+          ? String(item.imageSource ?? 'stock').trim().slice(0, 120) || 'stock'
+          : null,
+        mediaType: imageUrl ? 'photo' : null,
+      })
+      if (items.length === 5) break
+    }
+    if (!Number.isSafeInteger(channelId) || channelId <= 0 || items.length === 0) {
       return NextResponse.json({ error: 'bad_input' }, { status: 400 })
     }
-    if (texts.some((text) => text.length > 4000)) {
+    if (items.some((item) => item.text.length > 4000)) {
       return NextResponse.json({ error: 'text_too_long' }, { status: 400 })
     }
     const [channel] = await sql`
@@ -70,10 +99,16 @@ export async function POST(request: Request) {
     if (!channel) return NextResponse.json({ error: 'channel_not_found' }, { status: 404 })
 
     const ids: number[] = []
-    for (const text of texts) {
+    for (const item of items) {
       const [post] = await sql`
-        INSERT INTO posts (channel_id, topic, mode, text, text_hash, status)
-        VALUES (${channelId}, ${topic}, ${mode}, ${text}, md5(${text}), 'queued')
+        INSERT INTO posts (
+          channel_id, topic, mode, text, text_hash, status,
+          image_url, image_source, media_type
+        )
+        VALUES (
+          ${channelId}, ${topic}, ${mode}, ${item.text}, md5(${item.text}), 'queued',
+          ${item.imageUrl}, ${item.imageSource}, ${item.mediaType}
+        )
         RETURNING id
       `
       if (post?.id) ids.push(Number(post.id))

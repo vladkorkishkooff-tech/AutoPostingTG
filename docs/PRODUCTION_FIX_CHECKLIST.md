@@ -63,6 +63,8 @@
 - [x] Previous draft и recent channel history передаются как anti-dup context.
 - [x] Batch проверяет различие результатов и возвращает успешные partial drafts,
   если один элемент не сгенерирован.
+- [x] Каждый batch-черновик может автоматически или вручную получить отдельное
+  стоковое фото; выбранные URL и источник сохраняются вместе с ним в Queue.
 - [x] Есть bounded provider attempts, timeout, rate limit и usage accounting.
 - [x] Native Anthropic и OpenAI-compatible провайдеры разделены корректно.
 - [x] При полном отказе LLM возвращается ошибка; локальный выдуманный fallback
@@ -130,16 +132,17 @@
 
 ## 8. Финальные quality gates
 
-- [x] Python compile и 68 unit/integration tests.
-- [x] Mini App lint, TypeScript и 29 unit/API tests.
+- [x] Python compile и 69 unit/integration tests.
+- [x] Mini App lint, TypeScript и 31 unit/API tests.
 - [x] Next.js production build.
 - [x] Fresh PostgreSQL: migrations 001–006 применены дважды.
 - [x] Clean Docker image build и `pip check` внутри образа.
 - [x] Production dependency audit: zero known high vulnerabilities.
-- [x] Browser E2E: mobile Generator -> batch -> Queue -> regenerate -> stock.
+- [x] Browser E2E: mobile Generator -> batch -> per-draft stock -> Queue with
+  preserved media -> regenerate.
 - [x] После последнего изменения все гейты повторены 2026-07-15.
 
-Последний локальный отчёт: Python `68 passed`; Vitest `29 passed`; ESLint без
+Последний локальный отчёт: Python `69 passed`; Vitest `31 passed`; ESLint без
 warning; TypeScript без ошибок; Next.js production build успешен; migrations
 001–006 дали `6 applied`, затем `0 applied`; clean Docker build и `pip check`
 успешны; `pnpm audit --prod` не нашёл уязвимостей; mobile Edge E2E вернул

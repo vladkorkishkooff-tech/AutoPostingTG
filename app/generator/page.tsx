@@ -24,6 +24,12 @@ type PhotoCandidate = {
   query?: string
   requiredTerms?: string[]
 }
+type BatchPhotoState = {
+  candidates: PhotoCandidate[]
+  selected: PhotoCandidate | null
+  busy: boolean
+  error: string | null
+}
 
 const MODES = [
   { id: 'normal', label: 'Обычный' },
@@ -80,6 +86,8 @@ function GeneratorContent() {
   const [batchDrafts, setBatchDrafts] = useState<string[]>([])
   const [selectedBatch, setSelectedBatch] = useState<Set<number>>(() => new Set())
   const [batchSaving, setBatchSaving] = useState(false)
+  const [batchStockEnabled, setBatchStockEnabled] = useState(false)
+  const [batchPhotos, setBatchPhotos] = useState<Record<number, BatchPhotoState>>({})
   // Фото: url (сток или data-URL от AI), source — подпись источника, query — запрос визуального редактора.
   const [photo, setPhoto] = useState<{
     url: string
@@ -116,6 +124,7 @@ function GeneratorContent() {
     setPreview(null)
     setBatchDrafts([])
     setSelectedBatch(new Set())
+    setBatchPhotos({})
     setEditing(false)
     clearPhotoSelection()
   }
@@ -165,6 +174,7 @@ function GeneratorContent() {
         if (partialPosts.length > 0) {
           setBatchDrafts(partialPosts)
           setSelectedBatch(new Set())
+          setBatchPhotos({})
         }
         setMessage(
           data.error === 'bot_unavailable'
@@ -187,7 +197,15 @@ function GeneratorContent() {
             : []
           setBatchDrafts(posts)
           setSelectedBatch(new Set())
-          setMessage(`Создано ${posts.length} черновиков. Выберите лучший для работы.`)
+          setBatchPhotos({})
+          if (batchStockEnabled) {
+            const withPhoto = await fetchInitialBatchPhotos(posts)
+            setMessage(
+              `Создано ${posts.length} черновиков. Стоковое фото найдено для ${withPhoto} из ${posts.length}.`,
+            )
+          } else {
+            setMessage(`Создано ${posts.length} черновиков. Можно подобрать фото в каждой карточке.`)
+          }
           return
         }
         const nextText = typeof data.text === 'string' ? data.text.trim() : ''
@@ -331,16 +349,125 @@ function GeneratorContent() {
     setEditing(false)
   }
 
+  async function requestStockCandidates(
+    text: string,
+    excludedUrls: string[] = [],
+    count = 3,
+  ): Promise<PhotoCandidate[]> {
+    const response = await apiFetch('/api/image-search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topic, text, count, excludedUrls }),
+    })
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(
+        typeof data.message === 'string'
+          ? data.message
+          : data.error === 'image_not_found'
+            ? 'Для этого поста релевантное стоковое фото не найдено.'
+            : 'Не удалось подобрать стоковое фото.',
+      )
+    }
+    const candidates = Array.isArray(data.candidates) ? data.candidates : [data]
+    return candidates
+      .filter((candidate: unknown): candidate is PhotoCandidate => {
+        if (!candidate || typeof candidate !== 'object') return false
+        const value = candidate as Partial<PhotoCandidate>
+        return typeof value.url === 'string' && typeof value.source === 'string'
+      })
+      .slice(0, 3)
+  }
+
+  async function fetchInitialBatchPhotos(texts: string[]): Promise<number> {
+    setBatchPhotos(
+      Object.fromEntries(
+        texts.map((_, index) => [index, { candidates: [], selected: null, busy: true, error: null }]),
+      ),
+    )
+    // Automatic batch mode needs one good image per draft. Additional
+    // alternatives are loaded only when the user presses "Другое фото", so a
+    // five-post batch does not fan out into fifteen bridge/provider requests.
+    const results = await Promise.allSettled(
+      texts.map((text) => requestStockCandidates(text, [], 1)),
+    )
+    const usedUrls = new Set<string>()
+    const next: Record<number, BatchPhotoState> = {}
+    let selectedCount = 0
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled' && result.value.length > 0) {
+        const selected = result.value.find((candidate) => !usedUrls.has(candidate.url)) || result.value[0]
+        usedUrls.add(selected.url)
+        selectedCount += 1
+        next[index] = { candidates: result.value, selected, busy: false, error: null }
+      } else {
+        next[index] = {
+          candidates: [],
+          selected: null,
+          busy: false,
+          error:
+            result.status === 'rejected' && result.reason instanceof Error
+              ? result.reason.message
+              : 'Релевантное стоковое фото не найдено.',
+        }
+      }
+    })
+    setBatchPhotos(next)
+    return selectedCount
+  }
+
+  async function fetchBatchPhoto(index: number) {
+    const text = batchDrafts[index]
+    if (!text || batchPhotos[index]?.busy) return
+    const excludedUrls = Object.values(batchPhotos)
+      .flatMap((state) => state.candidates.map((candidate) => candidate.url))
+      .filter(Boolean)
+    setBatchPhotos((current) => ({
+      ...current,
+      [index]: {
+        candidates: current[index]?.candidates ?? [],
+        selected: current[index]?.selected ?? null,
+        busy: true,
+        error: null,
+      },
+    }))
+    try {
+      const candidates = await requestStockCandidates(text, excludedUrls)
+      setBatchPhotos((current) => ({
+        ...current,
+        [index]: {
+          candidates,
+          selected: candidates[0] ?? current[index]?.selected ?? null,
+          busy: false,
+          error: candidates.length > 0 ? null : 'Релевантное стоковое фото не найдено.',
+        },
+      }))
+      haptic('success')
+    } catch (error) {
+      setBatchPhotos((current) => ({
+        ...current,
+        [index]: {
+          candidates: current[index]?.candidates ?? [],
+          selected: current[index]?.selected ?? null,
+          busy: false,
+          error: error instanceof Error ? error.message : 'Не удалось подобрать стоковое фото.',
+        },
+      }))
+      haptic('error')
+    }
+  }
+
   function openBatchDraft(index: number) {
     const text = batchDrafts[index]
     if (!text) return
     haptic('light')
-    if (preview && preview !== text && photo) {
-      setPhotoStale(true)
-      setPublicationFormat('text')
-      setPhotoHint('Выбран другой текст. Прежнее фото помечено как устаревшее.')
-    }
+    const selectedPhoto = batchPhotos[index]?.selected ?? null
     setPreview(text)
+    setPhoto(selectedPhoto)
+    setPhotoCandidates(batchPhotos[index]?.candidates ?? [])
+    setPhotoStale(false)
+    setPublicationFormat(selectedPhoto ? 'photo' : 'text')
+    setPhotoHint(null)
     setEditing(false)
     setMessage('Черновик открыт. Его можно отредактировать, добавить фото или опубликовать.')
   }
@@ -367,7 +494,12 @@ function GeneratorContent() {
           channelId: selectedChannelId,
           topic,
           mode,
-          texts: [...selectedBatch].map((index) => batchDrafts[index]),
+          items: [...selectedBatch].map((index) => ({
+            text: batchDrafts[index],
+            imageUrl: batchPhotos[index]?.selected?.url ?? null,
+            imageSource: batchPhotos[index]?.selected?.source ?? null,
+            mediaType: batchPhotos[index]?.selected ? 'photo' : null,
+          })),
         }),
       })
       if (!response.ok) throw new Error('queue_save_failed')
@@ -479,27 +611,45 @@ function GeneratorContent() {
                 setBatchEnabled(event.target.checked)
                 setBatchDrafts([])
                 setSelectedBatch(new Set())
+                setBatchPhotos({})
               }}
               className="h-5 w-5 shrink-0 accent-primary"
               aria-label="Включить пакетную генерацию"
             />
           </label>
           {batchEnabled ? (
-            <label className="flex items-center justify-between gap-3 border-t border-border pt-3">
-              <span className="text-[12px] text-muted-foreground">Сколько черновиков</span>
-              <select
-                value={batchCount}
-                onChange={(event) => setBatchCount(Number(event.target.value))}
-                className="rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/60"
-                aria-label="Число черновиков"
-              >
-                {[2, 3, 4, 5].map((count) => (
-                  <option key={count} value={count}>
-                    {count}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="flex flex-col gap-3 border-t border-border pt-3">
+              <label className="flex items-center justify-between gap-3">
+                <span className="text-[12px] text-muted-foreground">Сколько черновиков</span>
+                <select
+                  value={batchCount}
+                  onChange={(event) => setBatchCount(Number(event.target.value))}
+                  className="rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/60"
+                  aria-label="Число черновиков"
+                >
+                  {[2, 3, 4, 5].map((count) => (
+                    <option key={count} value={count}>
+                      {count}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex cursor-pointer items-start justify-between gap-4 border-t border-border pt-3">
+                <span className="flex flex-col gap-1">
+                  <span className="text-[12px] font-medium text-foreground">Подобрать стоковые фото</span>
+                  <span className="text-[11px] leading-relaxed text-muted-foreground">
+                    После генерации найдёт отдельное фото для каждого текста через Pexels, Pixabay, NASA и другие источники.
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={batchStockEnabled}
+                  onChange={(event) => setBatchStockEnabled(event.target.checked)}
+                  className="mt-0.5 h-5 w-5 shrink-0 accent-primary"
+                  aria-label="Подобрать стоковые фото для пакета"
+                />
+              </label>
+            </div>
           ) : null}
         </section>
 
@@ -510,7 +660,9 @@ function GeneratorContent() {
               <span className="text-[11px] text-muted-foreground">готово {batchDrafts.length}</span>
             </div>
             <ul className="flex flex-col gap-2.5">
-              {batchDrafts.map((text, index) => (
+              {batchDrafts.map((text, index) => {
+                const media = batchPhotos[index]
+                return (
                 <li key={`${index}-${text.slice(0, 24)}`} className="glass flex flex-col gap-3 p-4">
                   <label className="flex cursor-pointer items-start gap-3">
                     <input
@@ -522,15 +674,94 @@ function GeneratorContent() {
                     />
                     <span className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground">{text}</span>
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => openBatchDraft(index)}
-                    className="btn-outline-green pressable self-end px-3 py-1.5 text-[12px]"
-                  >
-                    Открыть для работы
-                  </button>
+                  {media?.selected ? (
+                    <div className="overflow-hidden rounded-lg border border-border">
+                      <Image
+                        src={media.selected.url}
+                        alt={`Стоковое фото для черновика ${index + 1}`}
+                        width={640}
+                        height={360}
+                        unoptimized
+                        className="aspect-video w-full object-cover"
+                      />
+                      <div className="flex items-center justify-between gap-2 px-3 py-2 text-[11px] text-muted-foreground">
+                        <span className="truncate">Источник: {media.selected.source}</span>
+                        <button
+                          type="button"
+                          onClick={() => setBatchPhotos((current) => ({
+                            ...current,
+                            [index]: {
+                              candidates: current[index]?.candidates ?? [],
+                              selected: null,
+                              busy: current[index]?.busy ?? false,
+                              error: current[index]?.error ?? null,
+                            },
+                          }))}
+                          className="pressable shrink-0 text-muted-foreground hover:text-foreground"
+                        >
+                          Убрать
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                  {media?.candidates && media.candidates.length > 1 ? (
+                    <div className="grid grid-cols-3 gap-2" role="group" aria-label={`Фото для черновика ${index + 1}`}>
+                      {media.candidates.map((candidate) => (
+                        <button
+                          type="button"
+                          key={candidate.url}
+                          onClick={() => setBatchPhotos((current) => ({
+                            ...current,
+                            [index]: {
+                              candidates: current[index]?.candidates ?? [],
+                              selected: candidate,
+                              busy: current[index]?.busy ?? false,
+                              error: null,
+                            },
+                          }))}
+                          className={`overflow-hidden rounded-lg border ${
+                            media.selected?.url === candidate.url ? 'border-primary ring-1 ring-primary/40' : 'border-border'
+                          }`}
+                          aria-label={`Выбрать ${candidate.source} для черновика ${index + 1}`}
+                        >
+                          <Image
+                            src={candidate.url}
+                            alt={candidate.title || candidate.source}
+                            width={220}
+                            height={124}
+                            unoptimized
+                            className="aspect-video w-full object-cover"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  {media?.error ? (
+                    <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] leading-relaxed text-amber-200">
+                      {media.error}
+                    </p>
+                  ) : null}
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      disabled={Boolean(media?.busy) || busy !== null || batchSaving}
+                      onClick={() => void fetchBatchPhoto(index)}
+                      className="btn-outline-green pressable flex items-center gap-1.5 px-3 py-1.5 text-[12px] disabled:opacity-50"
+                    >
+                      <RefreshCw size={12} className={media?.busy ? 'animate-spin' : ''} aria-hidden="true" />
+                      {media?.busy ? 'Поиск…' : media?.selected ? 'Другое фото' : 'Стоковое фото'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openBatchDraft(index)}
+                      className="btn-outline-green pressable px-3 py-1.5 text-[12px]"
+                    >
+                      Открыть для работы
+                    </button>
+                  </div>
                 </li>
-              ))}
+                )
+              })}
             </ul>
             <button
               type="button"

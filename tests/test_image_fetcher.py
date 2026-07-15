@@ -1,3 +1,8 @@
+from types import SimpleNamespace
+
+import pytest
+
+import ai_gen
 from ai_gen import _parse_image_queries, _parse_image_search_plan
 from image_fetcher import (
     ImageResult,
@@ -74,6 +79,46 @@ def test_structured_plan_keeps_eye_required_but_lens_optional():
     assert plan is not None
     assert plan.required_terms == ("giant", "squid", "eye")
     assert plan.queries[0] == "giant squid eye lens"
+
+
+@pytest.mark.asyncio
+async def test_image_planner_tries_the_next_model_when_the_first_one_fails(monkeypatch):
+    calls: list[str] = []
+
+    async def fake_request(provider, model, messages, config, timeout_seconds):
+        del provider, messages, config, timeout_seconds
+        calls.append(model)
+        if model == "working-model":
+            return (
+                '{"subject":"Olympus Mons","focus":"volcano",'
+                '"required_terms":["olympus","mons","volcano"],'
+                '"queries":["Olympus Mons volcano Mars"]}'
+            )
+        return ""
+
+    monkeypatch.setattr(ai_gen, "_request_image_plan_content", fake_request)
+    monkeypatch.setattr(ai_gen, "_provider_map", lambda config: {})
+    ai_gen._IMAGE_SEARCH_PLAN_CACHE.clear()
+    config = SimpleNamespace(
+        request_timeout_seconds=18,
+        llm_provider_order=[],
+        outbound_proxy_url="",
+    )
+
+    plan = await ai_gen.topic_to_image_search_plan(
+        "Уникальный тестовый пост про Олимп на Марсе",
+        config,
+        [{
+            "name": "custom",
+            "base_url": "https://llm.example.test/v1",
+            "api_key": "test-key",
+            "models": ["broken-model", "working-model"],
+        }],
+    )
+
+    assert calls == ["broken-model", "working-model"]
+    assert plan is not None
+    assert plan.required_terms == ("olympus", "mons", "volcano")
 
 
 def test_unknown_russian_topic_has_no_generic_fallback():

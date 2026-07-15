@@ -50,6 +50,63 @@ describe('manual and batch queue workflows', () => {
     expect(channelQuery).toContain("chat_id ~ '^-100[0-9]{6,}$'")
   })
 
+  it('persists an individual stock image with every selected batch draft', async () => {
+    sqlMock
+      .mockResolvedValueOnce([{ id: 9 }])
+      .mockResolvedValueOnce([{ id: 201 }])
+      .mockResolvedValueOnce([{ id: 202 }])
+    const response = await createQueueDrafts(request('https://example.test/api/queue', {
+      channelId: 9,
+      topic: 'космос',
+      mode: 'wow',
+      items: [
+        {
+          text: 'Факт об Олимпе на Марсе',
+          imageUrl: 'https://images.example.test/olympus.jpg',
+          imageSource: 'NASA',
+          mediaType: 'photo',
+        },
+        {
+          text: 'Факт о Титане',
+          imageUrl: 'https://images.example.test/titan.jpg',
+          imageSource: 'Pexels',
+          mediaType: 'photo',
+        },
+      ],
+    }))
+
+    expect(response.status).toBe(201)
+    expect(await response.json()).toMatchObject({ count: 2, ids: [201, 202] })
+    const firstInsert = (sqlMock.mock.calls[1][0] as TemplateStringsArray).join(' ')
+    expect(firstInsert).toContain('image_url, image_source, media_type')
+    expect(sqlMock.mock.calls[1].slice(1)).toEqual([
+      9,
+      'космос',
+      'wow',
+      'Факт об Олимпе на Марсе',
+      'Факт об Олимпе на Марсе',
+      'https://images.example.test/olympus.jpg',
+      'NASA',
+      'photo',
+    ])
+    expect(sqlMock.mock.calls[2].slice(-3)).toEqual([
+      'https://images.example.test/titan.jpg',
+      'Pexels',
+      'photo',
+    ])
+  })
+
+  it('rejects unsafe image URLs before inserting a batch', async () => {
+    const response = await createQueueDrafts(request('https://example.test/api/queue', {
+      channelId: 9,
+      items: [{ text: 'Факт', imageUrl: 'file:///etc/passwd', imageSource: 'custom' }],
+    }))
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: 'invalid_image_url' })
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
   it('keeps the old queued text when regeneration fails', async () => {
     sqlMock.mockResolvedValueOnce([{
       id: 101,

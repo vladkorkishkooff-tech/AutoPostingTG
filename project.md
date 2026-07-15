@@ -62,6 +62,9 @@
 
 ## Change Log
 
+- 2026-07-15: Batch generation can now search and select a separate stock image
+  for every draft and persist the chosen media into the review queue; documented
+  the future authenticated external-agent intake contract.
 - 2026-07-15: Production acceptance published one manual and one scheduled post,
   then exposed and fixed duplicate channel identity for `@username`/`-100...`;
   History now links directly to the confirmed Telegram message.

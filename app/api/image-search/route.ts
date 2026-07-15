@@ -60,7 +60,10 @@ export async function POST(request: Request) {
           excludedUrls: [...excluded],
           ownerTelegramId: user.telegramId,
         }),
-        signal: AbortSignal.timeout(25_000),
+        // The first lookup may also need an LLM visual-plan fallback before
+        // querying Pexels/NASA/Openverse. Keep it below this route's 60s cap,
+        // but do not abort a healthy provider chain after only 25 seconds.
+        signal: AbortSignal.timeout(45_000),
       })
       const data = (await res.json().catch(() => ({}))) as Partial<ImageCandidate> & { error?: string }
       if (!res.ok) {

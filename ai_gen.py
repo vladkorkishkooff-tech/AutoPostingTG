@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -561,6 +562,81 @@ _OPTIONAL_IMAGE_DETAIL_TERMS = {
 }
 
 
+async def _request_image_plan_content(
+    provider: LLMProvider,
+    model: str,
+    messages: list[dict[str, str]],
+    config: AppConfig,
+    timeout_seconds: float,
+) -> str:
+    """Call a provider using its native text endpoint and return raw content.
+
+    v0's Platform API is not OpenAI-compatible at ``/chat/completions``. The
+    previous planner sent every provider there, so a working v0 fallback could
+    generate posts but could never generate stock-image search terms.
+    """
+    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+    headers = {
+        "Authorization": f"Bearer {provider.api_key}",
+        "Content-Type": "application/json",
+        "User-Agent": "ai-content-manager/1.0",
+    }
+    if provider.name == "v0":
+        url = f"{provider.base_url.rstrip('/')}/chats"
+        payload = {
+            "message": messages[-1]["content"],
+            "system": messages[0]["content"],
+            "modelId": model,
+            "responseMode": "sync",
+            "chatPrivacy": "private",
+            "mcpServerIds": [],
+        }
+    elif provider.name == "anthropic":
+        url = f"{provider.base_url.rstrip('/')}/messages"
+        headers = {
+            "x-api-key": provider.api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+            "User-Agent": "ai-content-manager/1.0",
+        }
+        payload = {
+            "model": model,
+            "system": messages[0]["content"],
+            "messages": [messages[-1]],
+            "temperature": 0.0,
+            "max_tokens": 320,
+        }
+    else:
+        url = f"{provider.base_url.rstrip('/')}/chat/completions"
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": 0.0,
+            "max_tokens": 320,
+            **({"reasoning_effort": "none"} if provider.name.startswith("gemini") else {}),
+        }
+
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with session.post(
+            url,
+            headers=headers,
+            json=payload,
+            proxy=config.outbound_proxy_url or None,
+        ) as response:
+            if response.status >= 400:
+                return ""
+            data = await response.json()
+            if provider.name == "v0":
+                return _extract_v0_assistant_content(data)
+            if provider.name == "anthropic":
+                return "\n".join(
+                    str(block.get("text") or "").strip()
+                    for block in (data.get("content") or [])
+                    if isinstance(block, dict) and block.get("type") == "text"
+                ).strip()
+            return ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+
+
 def _parse_image_queries(content: str) -> list[str]:
     """Keep only short, concrete English queries returned by an LLM."""
     queries: list[str] = []
@@ -698,50 +774,48 @@ async def topic_to_image_search_plan(
         if p and p.is_enabled:
             candidates.append(p)
 
-    timeout = aiohttp.ClientTimeout(total=min(config.request_timeout_seconds, 15))
-    for provider in candidates[:3]:  # максимум 3 попытки — это вспомогательный вызов
-        model = provider.models[0]
-        try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(
-                    f"{provider.base_url.rstrip('/')}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {provider.api_key}",
-                        "Content-Type": "application/json",
-                        "User-Agent": "ai-content-manager/1.0",
-                    },
-                    json={
-                        "model": model,
-                        "messages": messages,
-                        "temperature": 0.0,
-                        "max_tokens": 320,
-                        **({"reasoning_effort": "none"} if provider.name.startswith("gemini") else {}),
-                    },
-                    proxy=config.outbound_proxy_url or None,
-                ) as response:
-                    if response.status >= 400:
-                        continue
-                    data = await response.json()
-                    content = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
-                    plan = _parse_image_search_plan(content)
-                    if plan:
-                        logger.info(
-                            "Generated image plan via %s: subject=%r focus=%r required=%s queries=%s",
-                            provider.name,
-                            plan.subject,
-                            plan.focus,
-                            plan.required_terms,
-                            plan.queries,
-                        )
+    # Keep the planner well inside the image route's bridge timeout.
+    # A rejected model is cheap, while a network timeout must not consume the
+    # whole request and prevent the next configured model from being tried.
+    deadline = asyncio.get_running_loop().time() + min(config.request_timeout_seconds, 18)
+    attempts = 0
+    for provider in candidates[:4]:
+        models = list(dict.fromkeys(provider.models))
+        if provider.name == "v0":
+            models.sort(key=lambda value: (value != "v0-mini", value))
+        for model in models[:3]:
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining < 1.5 or attempts >= 6:
+                return None
+            attempts += 1
+            try:
+                content = await _request_image_plan_content(
+                    provider,
+                    model,
+                    messages,
+                    config,
+                    min(remaining, 11),
+                )
+                plan = _parse_image_search_plan(content)
+                if plan:
+                    logger.info(
+                        "Generated image plan via %s model %s: subject=%r focus=%r required=%s queries=%s",
+                        provider.name,
+                        model,
+                        plan.subject,
+                        plan.focus,
+                        plan.required_terms,
+                        plan.queries,
+                    )
+                    _IMAGE_SEARCH_PLAN_CACHE[key] = plan
+                    if len(_IMAGE_SEARCH_PLAN_CACHE) > 500:
+                        _IMAGE_SEARCH_PLAN_CACHE.clear()
                         _IMAGE_SEARCH_PLAN_CACHE[key] = plan
-                        if len(_IMAGE_SEARCH_PLAN_CACHE) > 500:
-                            _IMAGE_SEARCH_PLAN_CACHE.clear()
-                            _IMAGE_SEARCH_PLAN_CACHE[key] = plan
-                        return plan
-        except (aiohttp.ClientError, TimeoutError) as exc:
-            logger.warning("Image query translation via %s failed: %s", provider.name, exc)
-        except Exception:
-            logger.exception("Unexpected image query translation error via %s", provider.name)
+                    return plan
+            except (aiohttp.ClientError, TimeoutError) as exc:
+                logger.warning("Image query translation via %s model %s failed: %s", provider.name, model, exc)
+            except Exception:
+                logger.exception("Unexpected image query translation error via %s model %s", provider.name, model)
 
     return None
 
