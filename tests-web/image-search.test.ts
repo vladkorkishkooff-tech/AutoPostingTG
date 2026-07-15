@@ -12,6 +12,7 @@ vi.mock('@/lib/auth', () => ({
 vi.mock('@/lib/rate-limit', () => ({ rateLimit: rateLimitMock }))
 
 import { POST as searchImages } from '@/app/api/image-search/route'
+import { POST as generateImage } from '@/app/api/generate-image/route'
 
 describe('shared stock image search', () => {
   beforeEach(() => {
@@ -69,6 +70,20 @@ describe('shared stock image search', () => {
     }))
     expect(response.status).toBe(503)
     expect(await response.json()).toMatchObject({ error: 'bot_unavailable', retryable: true })
+    vi.unstubAllGlobals()
+  })
+
+  it('preserves Gemini quota exhaustion as a retryable 429', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      Response.json({ error: 'quota_exhausted' }, { status: 429 }),
+    ))
+    const response = await generateImage(new Request('https://example.test/api/generate-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'ai', topic: 'Марс', text: 'Точный текст поста о Марсе' }),
+    }))
+    expect(response.status).toBe(429)
+    expect(await response.json()).toMatchObject({ error: 'quota_exhausted', retryable: true })
     vi.unstubAllGlobals()
   })
 })

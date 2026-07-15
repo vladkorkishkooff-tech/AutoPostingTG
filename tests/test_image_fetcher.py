@@ -40,6 +40,18 @@ def test_structured_plan_preserves_subject_and_focal_feature():
     assert all("eye" in query.lower() for query in plan.queries)
 
 
+def test_structured_plan_drops_connector_words_from_required_terms():
+    plan = _parse_image_search_plan(
+        '{"subject":"Olympus Mons","focus":"volcano summit and slopes",'
+        '"required_terms":["olympus","mons","volcano"],'
+        '"queries":["olympus mons volcano summit"]}'
+    )
+
+    assert plan is not None
+    assert plan.required_terms == ("olympus", "mons", "volcano")
+    assert plan.queries == ("olympus mons volcano summit",)
+
+
 def test_structured_plan_fails_closed_without_two_anchors():
     assert (
         _parse_image_search_plan(

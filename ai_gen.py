@@ -524,6 +524,7 @@ class ImageSearchPlan:
 _IMAGE_SEARCH_PLAN_CACHE: dict[str, ImageSearchPlan] = {}
 
 _GENERIC_IMAGE_TERMS = {
+    "and",
     "animal",
     "concept",
     "education",
@@ -531,11 +532,14 @@ _GENERIC_IMAGE_TERMS = {
     "image",
     "laboratory",
     "nature",
+    "of",
     "photo",
     "research",
     "science",
     "scientist",
     "technology",
+    "the",
+    "with",
 }
 
 _OPTIONAL_IMAGE_DETAIL_TERMS = {

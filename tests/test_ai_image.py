@@ -1,4 +1,4 @@
-from ai_image import _gemini_keys, ai_image_available
+from ai_image import _gemini_keys, ai_image_available, classify_ai_image_errors
 from config import load_config
 
 
@@ -23,3 +23,9 @@ def test_non_gemini_user_key_does_not_enable_image_generation():
     providers = [{"key_id": 2, "name": "groq", "api_key": "groq-key"}]
 
     assert not ai_image_available(config, providers)
+
+
+def test_ai_image_attempt_errors_are_actionable():
+    assert classify_ai_image_errors(["http_429", "http_429"]) == "quota_exhausted"
+    assert classify_ai_image_errors(["http_401"]) == "invalid_key"
+    assert classify_ai_image_errors(["network_error"]) == "generation_failed"

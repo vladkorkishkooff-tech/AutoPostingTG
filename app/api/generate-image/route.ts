@@ -52,10 +52,17 @@ export async function POST(request: Request) {
       const code = data.error || 'image_generation_failed'
       const messages: Record<string, string> = {
         no_key: 'Добавьте активный ключ Gemini в разделе API-ключей',
+        quota_exhausted: 'Лимит Gemini на AI-фото исчерпан. Выберите стоковое фото или повторите позже.',
+        invalid_key: 'Gemini отклонил ключ. Замените его в разделе API-ключей.',
         image_not_found: 'Релевантное стоковое фото не найдено',
         generation_failed: 'Gemini не вернул изображение. Попробуйте ещё раз.',
       }
-      return errorResponse(code, messages[code] || 'Не удалось подготовить изображение', res.status, res.status >= 500)
+      return errorResponse(
+        code,
+        messages[code] || 'Не удалось подготовить изображение',
+        res.status,
+        res.status >= 500 || res.status === 429,
+      )
     }
     return NextResponse.json(data)
   } catch (error) {

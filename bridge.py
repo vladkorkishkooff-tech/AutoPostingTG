@@ -176,8 +176,8 @@ async def start_bridge(
             return web.json_response({"error": "invalid_owner"}, status=400)
         result = await ai_image(topic, text, owner_telegram_id=owner_telegram_id)
         if isinstance(result, str):
-            # Код ошибки, например "no_key" — нет ключа Gemini
-            return web.json_response({"error": result}, status=422)
+            status = 429 if result == "quota_exhausted" else 422
+            return web.json_response({"error": result}, status=status)
         if result is None:
             return web.json_response({"error": "generation_failed"}, status=502)
         image_bytes, filename = result

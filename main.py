@@ -15,7 +15,7 @@ from aiogram.types import BufferedInputFile
 
 import db
 from ai_gen import available_modes, enabled_provider_names, generate_post, is_mode_token, normalize_mode
-from ai_image import ai_image_available, generate_ai_image
+from ai_image import ai_image_available, classify_ai_image_errors, generate_ai_image
 from bridge import start_bridge
 from config import AppConfig, load_config
 from scheduler import run_scheduler
@@ -1495,7 +1495,7 @@ async def run_bot():
         ):
             """AI-фото для предпросмотра. Возвращает bytes+имя, None или код ошибки."""
             user_providers: list[dict] = []
-            attempt_logger = None
+            db_attempt_logger = None
             if config.database_url and owner_telegram_id:
                 pool = await db.get_pool(config.database_url)
                 owner_id = await db.ensure_user(pool, owner_telegram_id)
@@ -1503,12 +1503,21 @@ async def run_bot():
                     user_providers = await fetch_user_providers(pool, owner_id)
                 except Exception:
                     logger.exception("Failed to load AI-image providers")
-                attempt_logger = key_attempt_logger(pool)
+                db_attempt_logger = key_attempt_logger(pool)
             if not ai_image_available(config, user_providers):
                 return "no_key"
-            return await generate_ai_image(
-                topic, text, config, user_providers=user_providers, on_attempt=attempt_logger
+            attempt_errors: list[str] = []
+
+            async def record_attempt(provider, model, success, error, duration_ms, key_id):
+                if not success and error:
+                    attempt_errors.append(str(error))
+                if db_attempt_logger:
+                    await db_attempt_logger(provider, model, success, error, duration_ms, key_id)
+
+            result = await generate_ai_image(
+                topic, text, config, user_providers=user_providers, on_attempt=record_attempt
             )
+            return result if result else classify_ai_image_errors(attempt_errors)
 
         bridge_runner = await start_bridge(
             _generate_preview,

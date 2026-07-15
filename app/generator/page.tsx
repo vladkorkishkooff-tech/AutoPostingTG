@@ -261,6 +261,10 @@ function GeneratorContent() {
           setPhotoHint(
             'Для AI-генерации фото нужен ключ Google Gemini. Добавьте GEMINI_API_KEY в .env бота или ключ Gemini в разделе «Ещё» → «API-ключи» — и перезапустите бота.',
           )
+        } else if (data.error === 'quota_exhausted') {
+          setPhotoHint('Дневной лимит Gemini на AI-фото исчерпан. Выберите стоковое фото или повторите позже.')
+        } else if (data.error === 'invalid_key') {
+          setPhotoHint('Gemini отклонил ключ. Замените его в разделе «Ещё» → «API-ключи».')
         } else if (data.error === 'image_not_found') {
           setPhotoHint(
             'Для этого конкретного факта нет проверенного стокового фото. Используйте «AI-фото» или измените текст — случайное общее изображение бот не подставит.',

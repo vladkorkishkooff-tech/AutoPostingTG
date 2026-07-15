@@ -66,6 +66,16 @@ def ai_image_available(
     return bool(_gemini_keys(config, user_providers))
 
 
+def classify_ai_image_errors(errors: list[str]) -> str:
+    """Convert provider attempt failures into a safe user-facing code."""
+    normalized = [value for value in errors if value]
+    if normalized and all(value == "http_429" for value in normalized):
+        return "quota_exhausted"
+    if any(value in {"http_401", "http_403"} for value in normalized):
+        return "invalid_key"
+    return "generation_failed"
+
+
 async def generate_ai_image(
     topic: str,
     post_text: str,

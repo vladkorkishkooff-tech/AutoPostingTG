@@ -126,8 +126,8 @@
 
 ## 8. Финальные quality gates
 
-- [x] Python compile и 61 unit/integration tests.
-- [x] Mini App lint, TypeScript и 25 unit/API tests.
+- [x] Python compile и 63 unit/integration tests.
+- [x] Mini App lint, TypeScript и 26 unit/API tests.
 - [x] Next.js production build.
 - [x] Fresh PostgreSQL: migrations 001–004 применены дважды.
 - [x] Clean Docker image build и `pip check` внутри образа.
@@ -135,7 +135,7 @@
 - [x] Browser E2E: mobile Generator -> batch -> Queue -> regenerate -> stock.
 - [x] После последнего изменения все гейты повторены 2026-07-15.
 
-Последний локальный отчёт: Python `61 passed`; Vitest `25 passed`; ESLint без
+Последний локальный отчёт: Python `63 passed`; Vitest `26 passed`; ESLint без
 warning; TypeScript без ошибок; Next.js production build успешен; migrations
 001–004 дали `4 applied`, затем `0 applied`; clean Docker build и `pip check`
 успешны; `pnpm audit --prod` не нашёл уязвимостей; mobile Edge E2E вернул
