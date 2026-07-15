@@ -155,11 +155,13 @@ export async function POST(request: Request) {
             SELECT coalesce(telegram_chat_id::text, chat_id) AS chat_id FROM channels
             WHERE id = ${requestedChannelId} AND user_id = ${user.userId}
               AND is_active AND is_verified AND bot_can_post
+              AND (chat_id ~ '^@[A-Za-z0-9_]{5,32}$' OR chat_id ~ '^-100[0-9]{6,}$')
             LIMIT 1
           `
         : await sql`
             SELECT coalesce(telegram_chat_id::text, chat_id) AS chat_id FROM channels
             WHERE user_id = ${user.userId} AND is_active AND is_verified AND bot_can_post
+              AND (chat_id ~ '^@[A-Za-z0-9_]{5,32}$' OR chat_id ~ '^-100[0-9]{6,}$')
             ORDER BY id LIMIT 1
           `
     const targetChat = channels[0]?.chat_id ? String(channels[0].chat_id) : null

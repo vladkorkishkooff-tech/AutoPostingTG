@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { sqlMock, authMock } = vi.hoisted(() => ({
+const { sqlMock, authMock, rateLimitMock } = vi.hoisted(() => ({
   sqlMock: vi.fn(),
   authMock: vi.fn(),
+  rateLimitMock: vi.fn(),
 }))
 
 vi.mock('@/lib/db', () => ({ sql: sqlMock }))
@@ -14,9 +15,12 @@ vi.mock('@/lib/crypto', () => ({
   encryptSecret: () => 'encrypted',
   keyHint: () => '••••test',
 }))
+vi.mock('@/lib/rate-limit', () => ({ rateLimit: rateLimitMock }))
 
+import { POST as generatePost } from '@/app/api/generate/route'
 import { POST as createKey } from '@/app/api/keys/route'
 import { GET as getPosts } from '@/app/api/posts/route'
+import { GET as getSchedules } from '@/app/api/schedules/route'
 import { POST as createTemplate } from '@/app/api/templates/route'
 
 function jsonRequest(url: string, body: unknown): Request {
@@ -31,6 +35,7 @@ describe('Mini App API validation', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     authMock.mockResolvedValue({ userId: 7, telegramId: 111 })
+    rateLimitMock.mockResolvedValue(null)
   })
 
   it('rejects a custom provider pointing to a private address', async () => {
@@ -75,5 +80,35 @@ describe('Mini App API validation', () => {
     }))
     expect(response.status).toBe(201)
     expect(insertedValues).toContain('normal')
+  })
+
+  it('lists schedules only for verified publication channels', async () => {
+    let query = ''
+    sqlMock.mockImplementationOnce((strings: TemplateStringsArray) => {
+      query = strings.join(' ')
+      return Promise.resolve([])
+    })
+    const response = await getSchedules(new Request('https://example.test/api/schedules'))
+    expect(response.status).toBe(200)
+    expect(query).toContain('c.is_active AND c.is_verified AND c.bot_can_post')
+    expect(query).toContain("c.chat_id ~ '^-100[0-9]{6,}$'")
+  })
+
+  it('never selects a personal Telegram ID for direct publication', async () => {
+    process.env.BOT_BRIDGE_URL = 'https://bridge.example.test'
+    process.env.BRIDGE_SECRET = 'test-bridge-secret'
+    let query = ''
+    sqlMock.mockImplementationOnce((strings: TemplateStringsArray) => {
+      query = strings.join(' ')
+      return Promise.resolve([])
+    })
+    const response = await generatePost(jsonRequest('https://example.test/api/generate', {
+      action: 'publish',
+      channelId: 9,
+      topic: 'космос',
+    }))
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toBe('channel_not_found')
+    expect(query).toContain("chat_id ~ '^-100[0-9]{6,}$'")
   })
 })

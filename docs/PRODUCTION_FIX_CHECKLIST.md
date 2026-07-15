@@ -116,7 +116,7 @@
 ## 7. Reproducible release
 
 - [x] Python runtime/dev dependencies pinned separately.
-- [x] Additive migrations 001–004 и idempotent advisory-lock runner.
+- [x] Additive migrations 001–005 и idempotent advisory-lock runner.
 - [x] Docker entrypoint выполняет production check и migrations до старта.
 - [x] CI: Python, web, migrations twice, audit, Docker/pip check и gitleaks.
 - [x] Health/config endpoints содержат release version и commit SHA.
@@ -127,17 +127,17 @@
 ## 8. Финальные quality gates
 
 - [x] Python compile и 63 unit/integration tests.
-- [x] Mini App lint, TypeScript и 26 unit/API tests.
+- [x] Mini App lint, TypeScript и 28 unit/API tests.
 - [x] Next.js production build.
-- [x] Fresh PostgreSQL: migrations 001–004 применены дважды.
+- [x] Fresh PostgreSQL: migrations 001–005 применены дважды.
 - [x] Clean Docker image build и `pip check` внутри образа.
 - [x] Production dependency audit: zero known high vulnerabilities.
 - [x] Browser E2E: mobile Generator -> batch -> Queue -> regenerate -> stock.
 - [x] После последнего изменения все гейты повторены 2026-07-15.
 
-Последний локальный отчёт: Python `63 passed`; Vitest `26 passed`; ESLint без
+Последний локальный отчёт: Python `63 passed`; Vitest `28 passed`; ESLint без
 warning; TypeScript без ошибок; Next.js production build успешен; migrations
-001–004 дали `4 applied`, затем `0 applied`; clean Docker build и `pip check`
+001–005 дали `5 applied`, затем `0 applied`; clean Docker build и `pip check`
 успешны; `pnpm audit --prod` не нашёл уязвимостей; mobile Edge E2E вернул
 `batchDefaultOff=true`, `generatorStockCandidates=3`, `generated=4`,
 `queued=2`, `regenerated=true`, `stockAttached=true` без console errors.

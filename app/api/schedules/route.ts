@@ -14,10 +14,13 @@ export async function GET(request: Request) {
     const schedules = await sql`
       SELECT s.id, s.channel_id, s.post_time, s.days_of_week, s.timezone, s.is_active,
              s.topic AS slot_topic, s.mode AS slot_mode,
-             c.chat_id, c.title AS channel_title, c.topic, c.mode
+             c.chat_id, c.title AS channel_title, c.topic, c.mode,
+             c.is_verified, c.bot_can_post
       FROM schedules s
       JOIN channels c ON c.id = s.channel_id
       WHERE c.user_id = ${user.userId}
+        AND c.is_active AND c.is_verified AND c.bot_can_post
+        AND (c.chat_id ~ '^@[A-Za-z0-9_]{5,32}$' OR c.chat_id ~ '^-100[0-9]{6,}$')
       ORDER BY s.post_time
     `
     return NextResponse.json({ schedules })
@@ -48,10 +51,12 @@ export async function POST(request: Request) {
       ? await sql`
           SELECT id, chat_id FROM channels
           WHERE id = ${channelId} AND user_id = ${user.userId} AND is_active AND is_verified AND bot_can_post
+            AND (chat_id ~ '^@[A-Za-z0-9_]{5,32}$' OR chat_id ~ '^-100[0-9]{6,}$')
         `
       : await sql`
           SELECT id, chat_id FROM channels
           WHERE user_id = ${user.userId} AND is_active AND is_verified AND bot_can_post
+            AND (chat_id ~ '^@[A-Za-z0-9_]{5,32}$' OR chat_id ~ '^-100[0-9]{6,}$')
           ORDER BY id LIMIT 1
         `
     if (!channel) {

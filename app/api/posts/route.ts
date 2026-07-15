@@ -38,6 +38,7 @@ export async function GET(request: Request) {
       FROM posts p
       JOIN channels c ON c.id = p.channel_id
       WHERE c.user_id = ${user.userId}
+        AND (c.chat_id ~ '^@[A-Za-z0-9_]{5,32}$' OR c.chat_id ~ '^-100[0-9]{6,}$')
         AND (${status}::text IS NULL OR p.status = ${status})
         AND (${channelId}::bigint IS NULL OR p.channel_id = ${channelId})
         AND coalesce(p.published_at, p.scheduled_at, p.created_at) > now() - (${requestedDays}::int * interval '1 day')

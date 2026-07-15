@@ -46,6 +46,8 @@ describe('manual and batch queue workflows', () => {
     }))
     expect(response.status).toBe(201)
     expect(await response.json()).toMatchObject({ count: 2, ids: [101, 102] })
+    const channelQuery = (sqlMock.mock.calls[0][0] as TemplateStringsArray).join(' ')
+    expect(channelQuery).toContain("chat_id ~ '^-100[0-9]{6,}$'")
   })
 
   it('keeps the old queued text when regeneration fails', async () => {
@@ -70,6 +72,9 @@ describe('manual and batch queue workflows', () => {
     )
     expect(response.status).toBe(502)
     expect(sqlMock).toHaveBeenCalledTimes(1)
+    const ownershipQuery = (sqlMock.mock.calls[0][0] as TemplateStringsArray).join(' ')
+    expect(ownershipQuery).toContain('c.is_verified')
+    expect(ownershipQuery).toContain('c.bot_can_post')
     vi.unstubAllGlobals()
   })
 })

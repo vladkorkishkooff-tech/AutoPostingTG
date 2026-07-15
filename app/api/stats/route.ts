@@ -67,12 +67,14 @@ export async function GET(request: Request) {
       FROM posts p
       JOIN channels c ON c.id = p.channel_id
       WHERE c.user_id = ${user.userId}
+        AND (c.chat_id ~ '^@[A-Za-z0-9_]{5,32}$' OR c.chat_id ~ '^-100[0-9]{6,}$')
     `
     const [lastPost] = await sql`
       SELECT p.text, p.topic, p.image_url, p.published_at
       FROM posts p
       JOIN channels c ON c.id = p.channel_id
       WHERE p.status = 'published' AND c.user_id = ${user.userId}
+        AND (c.chat_id ~ '^@[A-Za-z0-9_]{5,32}$' OR c.chat_id ~ '^-100[0-9]{6,}$')
       ORDER BY p.published_at DESC
       LIMIT 1
     `
@@ -84,6 +86,7 @@ export async function GET(request: Request) {
       JOIN channels c ON c.id = s.channel_id
       WHERE s.is_active AND c.is_active AND c.is_verified AND c.bot_can_post
         AND c.user_id = ${user.userId}
+        AND (c.chat_id ~ '^@[A-Za-z0-9_]{5,32}$' OR c.chat_id ~ '^-100[0-9]{6,}$')
     `
     const nextPostAt = computeNextSlot(schedules as never)
 
@@ -92,7 +95,9 @@ export async function GET(request: Request) {
       SELECT m.member_count, m.captured_at
       FROM channel_metrics m
       JOIN channels c ON c.id = m.channel_id
-      WHERE c.user_id = ${user.userId} AND m.captured_at > now() - interval '7 days'
+      WHERE c.user_id = ${user.userId}
+        AND (c.chat_id ~ '^@[A-Za-z0-9_]{5,32}$' OR c.chat_id ~ '^-100[0-9]{6,}$')
+        AND m.captured_at > now() - interval '7 days'
       ORDER BY m.captured_at
     `
     const points = (metricPoints as { member_count: number; captured_at: string }[]).map((m) => ({

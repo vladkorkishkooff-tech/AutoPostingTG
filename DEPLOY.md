@@ -132,6 +132,8 @@ HMAC-подпись initData токеном бота и достаёт Telegram 
 - `002_publication_integrity.sql` — проверенные каналы и честные статусы публикации;
 - `003_style_profiles.sql` — профиль стиля по каналу;
 - `004_rate_limits_and_query_indexes.sql` — распределённые API-лимиты и индексы.
+- `005_quarantine_invalid_publication_work.sql` — отключение legacy-слотов и
+  Queue-записей, которые ссылаются не на проверенный Telegram-канал.
 
 Сначала применяйте их на отдельной Neon branch/staging-базе. Production entrypoint
 применит только ещё не записанные миграции под PostgreSQL advisory lock.

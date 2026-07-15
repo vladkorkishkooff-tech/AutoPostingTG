@@ -17,6 +17,8 @@ export async function GET(request: Request) {
       FROM posts p
       JOIN channels c ON c.id = p.channel_id
       WHERE c.user_id = ${user.userId}
+        AND c.is_active AND c.is_verified AND c.bot_can_post
+        AND (c.chat_id ~ '^@[A-Za-z0-9_]{5,32}$' OR c.chat_id ~ '^-100[0-9]{6,}$')
         AND p.status IN ('queued', 'approved', 'failed')
         AND (
           p.scheduled_at IS NULL
@@ -63,6 +65,7 @@ export async function POST(request: Request) {
       SELECT id FROM channels
       WHERE id = ${channelId} AND user_id = ${user.userId}
         AND is_active AND is_verified AND bot_can_post
+        AND (chat_id ~ '^@[A-Za-z0-9_]{5,32}$' OR chat_id ~ '^-100[0-9]{6,}$')
     `
     if (!channel) return NextResponse.json({ error: 'channel_not_found' }, { status: 404 })
 

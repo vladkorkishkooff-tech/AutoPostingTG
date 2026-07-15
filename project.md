@@ -62,6 +62,8 @@
 
 ## Change Log
 
+- 2026-07-15: Added migration 005 and verified-target filters so legacy schedules,
+  queued posts, History and Stats cannot expose or execute personal Telegram IDs.
 - 2026-07-15: Added opt-in 2–5 batch generation with selected drafts going to Queue, Queue text regeneration/manual retry, server-side mode/format validation, database-backed rate limits, runtime custom-endpoint DNS checks, provider-key usage tracking, pinned Python dependencies, release metadata, and CI migration/Docker/secret gates.
 - 2026-07-14: Replaced decorative Style, Media, Provider, Settings, and usage-stat surfaces with persistent user-scoped workflows. Channel style profiles now use additive JSONB schema, provider order/toggles affect encrypted user-key selection, media can be attached to a selected queued post, and image replacement preserves the current image on structured failures.
 - 2026-07-14: User Gemini keys are accepted by the stock-query and AI-image Python contracts, image providers use a circuit breaker, and exact subject/focal-detail validation rejects broad metadata-only matches.

@@ -28,6 +28,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       FROM posts p
       JOIN channels c ON c.id = p.channel_id
       WHERE p.id = ${postId} AND c.user_id = ${user.userId}
+        AND c.is_active AND c.is_verified AND c.bot_can_post
+        AND (c.chat_id ~ '^@[A-Za-z0-9_]{5,32}$' OR c.chat_id ~ '^-100[0-9]{6,}$')
     `
     if (!post) return NextResponse.json({ error: 'not_found' }, { status: 404 })
     if (!['queued', 'approved', 'failed'].includes(String(post.status))) {
