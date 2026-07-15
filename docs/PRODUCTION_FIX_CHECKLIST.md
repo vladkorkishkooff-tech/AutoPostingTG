@@ -121,8 +121,8 @@
 - [x] CI: Python, web, migrations twice, audit, Docker/pip check и gitleaks.
 - [x] Health/config endpoints содержат release version и commit SHA.
 - [x] README, deployment и buyer handoff соответствуют фактической архитектуре.
-- [ ] Commit/stage все файлы релиза и получить зелёный CI на remote commit.
-- [ ] Развернуть один и тот же commit на Railway и Vercel.
+- [x] Commit/stage все файлы релиза и получить зелёный CI на remote commit.
+- [x] Commit `d423f3c` развёрнут на Railway и Vercel; production API smoke пройден.
 
 ## 8. Финальные quality gates
 
