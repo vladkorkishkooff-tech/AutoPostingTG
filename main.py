@@ -1,6 +1,7 @@
 import asyncio
 import html
 import logging
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -26,6 +27,7 @@ from image_fetcher import download_image, get_science_photo
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
 

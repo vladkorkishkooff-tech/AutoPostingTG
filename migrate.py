@@ -5,12 +5,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sys
 from pathlib import Path
 
 import asyncpg
 from dotenv import load_dotenv
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stdout)
 logger = logging.getLogger(__name__)
 MIGRATIONS_DIR = Path(__file__).with_name("migrations")
 LOCK_ID = 8_040_413_112
