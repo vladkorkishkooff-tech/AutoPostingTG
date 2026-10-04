@@ -210,9 +210,17 @@ async def start_bridge(
         status = 200 if result.get("ok") else 422
         return web.json_response(result, status=status)
 
+    async def handle_root(_request: web.Request) -> web.Response:
+        web_app_url = os.getenv("WEB_APP_URL", "https://autoposting-tg.vercel.app")
+        return web.Response(
+            text=f"<h1>EDITH Bot Bridge Active</h1><p><a href='{web_app_url}'>Open Mini App</a></p>",
+            content_type="text/html",
+        )
+
     # publish_custom may carry a base64 AI image. Keep the limit bounded, but
     # above the 4 MB limit enforced by the Next.js route.
     app = web.Application(client_max_size=5 * 1024 * 1024)
+    app.router.add_get("/", handle_root)
     app.router.add_post("/generate", handle_generate)
     app.router.add_post("/image", handle_image)
     app.router.add_post("/ai_image", handle_ai_image)
