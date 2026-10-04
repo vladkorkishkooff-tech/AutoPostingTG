@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getAuthUser, unauthorized } from '@/lib/auth'
 import { sql } from '@/lib/db'
 import { rateLimit } from '@/lib/rate-limit'
+import { getBridgeUrl } from '@/lib/bridge-url'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -121,7 +122,7 @@ export async function POST(request: Request) {
       return apiError('invalid_json', 'Тело запроса должно быть JSON.', 400)
     }
 
-    const bridgeUrl = process.env.BOT_BRIDGE_URL
+    const bridgeUrl = getBridgeUrl()
     const bridgeSecret = process.env.BRIDGE_SECRET
     if (!bridgeUrl || !bridgeSecret) {
       return apiError('bot_unavailable', 'Связь с ботом не настроена.', 503, true)

@@ -1,16 +1,17 @@
 import { NextResponse } from 'next/server'
 import { sql } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/auth'
+import { getBridgeUrl } from '@/lib/bridge-url'
 
 export const dynamic = 'force-dynamic'
 
 async function bridgeOnline(): Promise<boolean> {
-  const bridgeUrl = process.env.BOT_BRIDGE_URL
+  const bridgeUrl = getBridgeUrl()
   if (!bridgeUrl) return false
   try {
-    const response = await fetch(`${bridgeUrl.replace(/\/$/, '')}/health`, {
+    const response = await fetch(`${bridgeUrl}/health`, {
       cache: 'no-store',
-      signal: AbortSignal.timeout(2500),
+      signal: AbortSignal.timeout(5000),
     })
     return response.ok
   } catch {
@@ -64,7 +65,14 @@ export async function GET(request: Request) {
       runtime: {
         bridgeOnline: online,
         bridgeConfigured: Boolean(process.env.BOT_BRIDGE_URL && process.env.BRIDGE_SECRET),
-        proxyManagedBy: 'Railway bot environment',
+        bridgeHost: (() => {
+          try {
+            return getBridgeUrl() ? new URL(getBridgeUrl()).host : null
+          } catch {
+            return 'invalid'
+          }
+        })(),
+        proxyManagedBy: 'Render bot environment',
         proxyVariables: ['TELEGRAM_PROXY_URL', 'OUTBOUND_PROXY_URL'],
         keyStorage: 'AES-256-GCM encrypted in Postgres',
         version: process.env.NEXT_PUBLIC_APP_VERSION || '1.1.0',

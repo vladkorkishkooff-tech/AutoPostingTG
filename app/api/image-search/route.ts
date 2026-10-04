@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAuthUser, unauthorized } from '@/lib/auth'
 import { rateLimit } from '@/lib/rate-limit'
+import { getBridgeUrl } from '@/lib/bridge-url'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -24,7 +25,7 @@ export async function POST(request: Request) {
   const limited = await rateLimit(user.userId, 'image-search', 15)
   if (limited) return limited
 
-  const bridgeUrl = process.env.BOT_BRIDGE_URL
+  const bridgeUrl = getBridgeUrl()
   const bridgeSecret = process.env.BRIDGE_SECRET
   if (!bridgeUrl || !bridgeSecret) {
     return errorResponse('bot_unavailable', 'Бот не подключён к Mini App', 503, true)

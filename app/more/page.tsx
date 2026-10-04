@@ -10,6 +10,8 @@ import {
   Radio,
   History,
   BookmarkPlus,
+  FileJson,
+  Lightbulb,
 } from 'lucide-react'
 import { PageHeader } from '@/components/ui'
 
@@ -43,6 +45,18 @@ const groups: {
         icon: ImageIcon,
         title: 'Медиа лаборатория',
         description: 'Источники изображений и галерея',
+      },
+      {
+        href: '/more/import',
+        icon: FileJson,
+        title: 'Импорт от AI-агента',
+        description: 'JSON-пакет от бесплатной или локальной модели → очередь',
+      },
+      {
+        href: '/more/ideas',
+        icon: Lightbulb,
+        title: 'Актуальные идеи',
+        description: 'Свежие темы из новостей за последние 7 дней',
       },
     ],
   },

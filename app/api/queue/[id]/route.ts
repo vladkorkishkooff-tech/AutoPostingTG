@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { sql } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/auth'
 import { rateLimit } from '@/lib/rate-limit'
+import { getBridgeUrl } from '@/lib/bridge-url'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,6 +12,8 @@ export const dynamic = 'force-dynamic'
  * - text — отредактировать текст перед публикацией
  * - imageUrl / mediaType — заменить медиа ('photo' | 'video'), null = убрать
  */
+export const POST = PATCH
+
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const user = await getAuthUser(request)
@@ -42,7 +45,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (body.action === 'regenerate') {
       const limited = await rateLimit(user.userId, 'queue-regenerate', 8)
       if (limited) return limited
-      const bridgeUrl = process.env.BOT_BRIDGE_URL
+      const bridgeUrl = getBridgeUrl()
       const bridgeSecret = process.env.BRIDGE_SECRET
       if (!bridgeUrl || !bridgeSecret) {
         return NextResponse.json({ error: 'bot_unavailable' }, { status: 503 })
@@ -83,7 +86,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       }
       const limited = await rateLimit(user.userId, 'queue-publish', 6)
       if (limited) return limited
-      const bridgeUrl = process.env.BOT_BRIDGE_URL
+      const bridgeUrl = getBridgeUrl()
       const bridgeSecret = process.env.BRIDGE_SECRET
       if (!bridgeUrl || !bridgeSecret) {
         return NextResponse.json({ error: 'bot_unavailable' }, { status: 503 })
