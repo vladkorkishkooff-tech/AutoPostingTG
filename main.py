@@ -10,7 +10,16 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from aiogram.filters.command import CommandObject
-from aiogram.types import BotCommand, KeyboardButton, LinkPreviewOptions, MenuButtonWebApp, ReplyKeyboardMarkup, WebAppInfo
+from aiogram.types import (
+    BotCommand,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    LinkPreviewOptions,
+    MenuButtonWebApp,
+    ReplyKeyboardMarkup,
+    WebAppInfo,
+)
 from aiogram.types import BufferedInputFile
 
 import db
@@ -1172,6 +1181,38 @@ async def cmd_help(message: types.Message):
     if await _deny_if_needed(message):
         return
     await message.answer(_help_text(), reply_markup=_main_keyboard())
+    if config.web_app_url:
+        inline_kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🚀 Открыть Mini App",
+                        web_app=WebAppInfo(url=config.web_app_url),
+                    )
+                ]
+            ]
+        )
+        await message.answer("Панель управления доступна в Telegram Mini App:", reply_markup=inline_kb)
+
+
+@dp.message(Command("app", "webapp"))
+async def cmd_app(message: types.Message):
+    if await _deny_if_needed(message):
+        return
+    if not config.web_app_url:
+        await message.answer("WEB_APP_URL не настроен в конфигурации бота.")
+        return
+    inline_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🚀 Открыть Mini App",
+                    web_app=WebAppInfo(url=config.web_app_url),
+                )
+            ]
+        ]
+    )
+    await message.answer("Нажмите кнопку ниже, чтобы открыть панель управления:", reply_markup=inline_kb)
 
 
 @dp.message(Command("menu"))
@@ -1545,6 +1586,7 @@ async def run_bot():
         await bot.set_my_commands(
             [
                 BotCommand(command="start", description="Открыть меню"),
+                BotCommand(command="app", description="Панель управления Mini App"),
                 BotCommand(command="setup", description="Обзор и настройка системы"),
                 BotCommand(command="channels", description="Мои каналы"),
                 BotCommand(command="addchannel", description="Добавить канал"),
