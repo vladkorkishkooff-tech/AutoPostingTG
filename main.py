@@ -1,4 +1,5 @@
 import asyncio
+import aiohttp
 import html
 import logging
 import sys
@@ -1410,6 +1411,36 @@ async def run_watchdog() -> None:
             logger.exception("Watchdog loop error")
 
 
+
+KEEPALIVE_INTERVAL_SECONDS = int(os.getenv("KEEPALIVE_INTERVAL_SECONDS", "540") or "540")
+
+
+async def run_keepalive() -> None:
+    """Фоновый пингер для предотвращения засыпания Render Free (15-мин таймаут)."""
+    target_url = (
+        os.getenv("RENDER_EXTERNAL_URL")
+        or os.getenv("BOT_BRIDGE_URL")
+        or "https://autopostingtg.onrender.com"
+    ).rstrip("/")
+    health_url = f"{target_url}/health"
+
+    logger.info("Keepalive worker initialized for %s (interval %ss)", health_url, KEEPALIVE_INTERVAL_SECONDS)
+    await asyncio.sleep(120)
+
+    while True:
+        try:
+            timeout = aiohttp.ClientTimeout(total=20)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(health_url) as resp:
+                    if resp.status == 200:
+                        logger.info("Keepalive self-ping successful (200 OK)")
+                    else:
+                        logger.warning("Keepalive self-ping unexpected status: %s", resp.status)
+        except Exception as exc:
+            logger.warning("Keepalive self-ping failed: %s", exc)
+        await asyncio.sleep(KEEPALIVE_INTERVAL_SECONDS)
+
+
 async def start_db_scheduler():
     """Запускает планировщик расписаний, сборщик метрик и watchdog, если настроена БД."""
     if not config.database_url:
@@ -1419,6 +1450,7 @@ async def start_db_scheduler():
     asyncio.create_task(run_scheduler(pool, publish_scheduled, prepare_queued_post))
     asyncio.create_task(run_metrics_collector())
     asyncio.create_task(run_watchdog())
+    asyncio.create_task(run_keepalive())
 
 
 async def run_bot():

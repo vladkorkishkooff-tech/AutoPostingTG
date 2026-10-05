@@ -21,11 +21,13 @@
 1. Mini App verifies Telegram identity, manages channels/keys/schedules, and invokes the bot through the secret-protected bridge.
 2. The bot generates a post, picks media, records the result, and publishes it to a configured channel.
 3. Scheduler pre-generates queued posts and claims time slots atomically to avoid duplicate publications.
+4. An authenticated external-agent intake accepts a validated `autopostingtg.post-pack.v1` JSON package, stores source provenance, and places reviewed drafts into Queue.
+5. The Ideas surface reads a bounded, free Google News RSS window (seven days) and turns current headlines into editor-approved generation topics.
 
 ## Database
 
 - The schema is versioned in `migrations/` and applied by `migrate.py` or the Docker entrypoint.
-- Key entities: users, channels, schedules, posts, topic pool, provider keys, usage events, and channel metrics.
+- Key entities: users, channels, schedules, posts (including JSONB source provenance), topic pool, provider keys, usage events, and channel metrics.
 - Migrations are additive and serialised with a PostgreSQL advisory lock.
 
 ## Release Gates
@@ -59,9 +61,11 @@
 - 2026-07-13 production verification: Olympus Mons requires `olympus + mons + volcano` and selects a labelled shield-volcano image; the giant-squid-eye post requires `giant + squid + eye` and selects an actual eye close-up. Historical image URLs no longer rotate search away from the most exact query.
 - 2026-07-13: Mini App generation and media selection are serialised: regeneration explicitly avoids the current draft and invalidates its photo, while topic/mode/manual-text changes also clear stale media. Stock search is disabled until a current preview exists.
 - 2026-07-13: Visual-plan anchors distinguish the broad visible feature from metadata-fragile subdetails; for example, an eye lens still searches and validates `giant + squid + eye`, with `lens` kept as an optional query detail.
+- 2026-07-19: Added the `autopostingtg.post-pack.v1` external-agent contract, authenticated JSON import into Queue, source provenance migration 007, free current-idea discovery from Google News RSS, and buyer-facing documentation for agent/free/local-model workflows.
 
 ## Change Log
 
+- 2026-10-05: Added self-keepalive background worker in main.py and GitHub Actions keepalive.yml to prevent Render free-tier idle spin-down; added 45-minute catch-up grace window in scheduler.py _due_now so missed slots run reliably after restarts.
 - 2026-07-15: Batch generation can now search and select a separate stock image
   for every draft and persist the chosen media into the review queue; documented
   the future authenticated external-agent intake contract.

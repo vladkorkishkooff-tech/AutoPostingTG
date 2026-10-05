@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopostingtg.example/schema/post-pack.v1.json",
+  "title": "AutoPostingTG external-agent post pack",
+  "type": "object",
+  "required": ["schemaVersion", "generatedAt", "sourceMode", "research", "posts"],
+  "properties": {
+    "schemaVersion": { "const": "autopostingtg.post-pack.v1" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "sourceMode": { "enum": ["agent", "free-model", "api", "manual"] },
+    "research": {
+      "type": "object", "required": ["topic", "asOf", "sources"],
+      "properties": {
+        "topic": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "asOf": { "type": "string", "format": "date-time" },
+        "sources": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "$ref": "#/$defs/source" } }
+      }, "additionalProperties": false
+    },
+    "posts": { "type": "array", "minItems": 1, "maxItems": 5, "items": { "$ref": "#/$defs/post" } }
+  },
+  "$defs": {
+    "source": {
+      "type": "object", "required": ["title", "url"],
+      "properties": { "title": { "type": "string", "maxLength": 180 }, "url": { "type": "string", "format": "uri", "pattern": "^https://" }, "publishedAt": { "type": "string", "format": "date-time" }, "accessedAt": { "type": "string", "format": "date-time" }, "summary": { "type": "string", "maxLength": 500 } },
+      "additionalProperties": false
+    },
+    "post": {
+      "type": "object", "required": ["topic", "mode", "text"],
+      "properties": {
+        "id": { "type": "string", "maxLength": 80 }, "topic": { "type": "string", "maxLength": 160 },
+        "mode": { "enum": ["normal", "short", "long", "funny", "wow", "strict"] }, "text": { "type": "string", "minLength": 40, "maxLength": 4000 },
+        "scheduledAt": { "type": "string", "format": "date-time" },
+        "image": { "type": "object", "properties": { "url": { "type": "string", "pattern": "^https?://" }, "prompt": { "type": "string", "maxLength": 600 }, "source": { "type": "string", "maxLength": 120 } }, "additionalProperties": false }
+      }, "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

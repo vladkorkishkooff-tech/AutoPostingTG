@@ -36,6 +36,7 @@ CHECK_INTERVAL_SECONDS = 30
 PREGEN_MINUTES = int(os.getenv("QUEUE_PREGEN_MINUTES", "60") or "60")
 PUBLISH_RETRIES = int(os.getenv("PUBLISH_RETRIES", "3") or "3")
 RETRY_BASE_SECONDS = 20
+SLOT_CATCHUP_GRACE_MINUTES = int(os.getenv("SLOT_CATCHUP_GRACE_MINUTES", "45") or "45")
 
 
 def _schedule_rows_query() -> str:
@@ -77,15 +78,18 @@ async def _fetch_schedules(pool) -> list[dict]:
 
 def _due_now(rows: list[dict]) -> list[dict]:
     due: list[dict] = []
+    now_utc = datetime.now(timezone.utc)
     for row in rows:
         tz = _row_tz(row)
         now_local = datetime.now(tz)
         if now_local.weekday() not in (row["days_of_week"] or []):
             continue
-        post_time = row["post_time"]
-        if now_local.hour == post_time.hour and now_local.minute == post_time.minute:
+        slot_utc = _slot_datetime_utc(row, now_local)
+        delay = now_utc - slot_utc
+        # Слот готов, если время наступило и задержка не превышает окно догона (по умолчанию 45 минут)
+        if timedelta(seconds=0) <= delay <= timedelta(minutes=SLOT_CATCHUP_GRACE_MINUTES):
             row = dict(row)
-            row["scheduled_at"] = _slot_datetime_utc(row, now_local)
+            row["scheduled_at"] = slot_utc
             due.append(row)
     return due
 
