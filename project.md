@@ -23,6 +23,7 @@
 3. Scheduler pre-generates queued posts and claims time slots atomically to avoid duplicate publications.
 4. An authenticated external-agent intake accepts a validated `autopostingtg.post-pack.v1` JSON package, stores source provenance, and places reviewed drafts into Queue.
 5. The Ideas surface reads a bounded, free Google News RSS window (seven days) and turns current headlines into editor-approved generation topics.
+6. Channel content standard, formatting rules, and benchmark examples are documented in [STYLE_GUIDE.md](STYLE_GUIDE.md).
 
 ## Database
 
