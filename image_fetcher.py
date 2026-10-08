@@ -682,59 +682,82 @@ async def download_image(image: ImageResult, config: AppConfig | None = None) ->
     timeout = aiohttp.ClientTimeout(total=config.request_timeout_seconds)
     headers = {"User-Agent": USER_AGENT, "Accept": "image/webp,image/apng,image/*,*/*;q=0.8"}
 
+    urls_to_try = [image.url]
+    if "images-assets.nasa.gov" in image.url:
+        if "~medium.jpg" in image.url:
+            urls_to_try.extend([
+                image.url.replace("~medium.jpg", "~orig.jpg"),
+                image.url.replace("~medium.jpg", "~large.jpg"),
+                image.url.replace("~medium.jpg", "~small.jpg"),
+            ])
+        elif "~thumb.jpg" in image.url:
+            urls_to_try.extend([
+                image.url.replace("~thumb.jpg", "~orig.jpg"),
+                image.url.replace("~thumb.jpg", "~large.jpg"),
+                image.url.replace("~thumb.jpg", "~medium.jpg"),
+            ])
+        elif "~orig.jpg" in image.url:
+            urls_to_try.extend([
+                image.url.replace("~orig.jpg", "~large.jpg"),
+                image.url.replace("~orig.jpg", "~medium.jpg"),
+                image.url.replace("~orig.jpg", "~small.jpg"),
+            ])
+
     try:
         async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
-            current_url = image.url
-            for _ in range(4):
-                if not await _is_public_image_url(current_url):
-                    logger.warning("Rejected non-public image URL host: %s", _url_host(current_url))
-                    return None
+            for candidate_url in urls_to_try:
+                current_url = candidate_url
+                for _ in range(4):
+                    if not await _is_public_image_url(current_url):
+                        logger.warning("Rejected non-public image URL host: %s", _url_host(current_url))
+                        break
 
-                async with session.get(
-                    current_url,
-                    proxy=config.outbound_proxy_url or None,
-                    allow_redirects=False,
-                ) as response:
-                    if 300 <= response.status < 400:
-                        location = response.headers.get("Location")
-                        if not location:
-                            return None
-                        current_url = urljoin(current_url, location)
-                        continue
+                    try:
+                        async with session.get(
+                            current_url,
+                            proxy=config.outbound_proxy_url or None,
+                            allow_redirects=False,
+                        ) as response:
+                            if 300 <= response.status < 400:
+                                location = response.headers.get("Location")
+                                if not location:
+                                    break
+                                current_url = urljoin(current_url, location)
+                                continue
 
-                    if response.status >= 400:
-                        logger.warning(
-                            "Image download failed with HTTP %s from %s",
-                            response.status,
-                            _url_host(current_url),
-                        )
-                        return None
+                            if response.status >= 400:
+                                logger.warning(
+                                    "Image download failed with HTTP %s from %s (%s)",
+                                    response.status,
+                                    _url_host(current_url),
+                                    current_url,
+                                )
+                                break
 
-                    content_type = response.headers.get("Content-Type", "")
-                    if "image" not in content_type.lower():
-                        logger.warning(
-                            "Image URL returned non-image content type %s from %s",
-                            content_type,
-                            _url_host(current_url),
-                        )
-                        return None
+                            content_type = response.headers.get("Content-Type", "")
+                            if "image" not in content_type.lower():
+                                logger.warning(
+                                    "Image URL returned non-image content type %s from %s",
+                                    content_type,
+                                    _url_host(current_url),
+                                )
+                                break
 
-                    content = await response.read()
-                    if len(content) > config.max_image_bytes:
-                        logger.warning(
-                            "Image is too large: %s bytes from %s",
-                            len(content),
-                            _url_host(current_url),
-                        )
-                        return None
+                            content = await response.read()
+                            if len(content) > config.max_image_bytes:
+                                logger.warning(
+                                    "Image is too large: %s bytes from %s",
+                                    len(content),
+                                    _url_host(current_url),
+                                )
+                                break
 
-                    return content, image.filename
+                            return content, image.filename
+                    except (aiohttp.ClientError, TimeoutError) as net_err:
+                        logger.warning("Image candidate download network error for %s: %s", current_url, net_err)
+                        break
 
-            logger.warning("Image download exceeded redirect limit from %s", _url_host(image.url))
             return None
-    except (aiohttp.ClientError, TimeoutError) as exc:
-        logger.warning("Image download network error: %s", exc)
-        return None
     except Exception:
         logger.exception("Unexpected image download error")
         return None

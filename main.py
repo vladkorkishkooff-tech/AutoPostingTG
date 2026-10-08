@@ -539,17 +539,37 @@ async def publish_post(
         )
 
     try:
+        sent = None
+        photo_sent = False
         if image_payload:
             image_bytes, filename = image_payload
-            sent = await bot.send_photo(
-                chat_id=chat_id,
-                photo=BufferedInputFile(image_bytes, filename=filename),
-                caption=_caption(post_text, channel_context),
-                parse_mode=ParseMode.HTML,
-                show_caption_above_media=False,
-                disable_notification=True,
-            )
-        else:
+            try:
+                sent = await bot.send_photo(
+                    chat_id=chat_id,
+                    photo=BufferedInputFile(image_bytes, filename=filename),
+                    caption=_caption(post_text, channel_context),
+                    parse_mode=ParseMode.HTML,
+                    show_caption_above_media=False,
+                    disable_notification=True,
+                )
+                photo_sent = True
+            except Exception as photo_err:
+                logger.warning("publish_single_post: send_photo with payload failed: %s", photo_err)
+
+        if not photo_sent and image_url:
+            try:
+                sent = await bot.send_photo(
+                    chat_id=chat_id,
+                    photo=image_url,
+                    caption=_caption(post_text, channel_context),
+                    parse_mode=ParseMode.HTML,
+                    disable_notification=True,
+                )
+                photo_sent = True
+            except Exception as photo_err:
+                logger.warning("publish_single_post: send_photo with URL failed: %s", photo_err)
+
+        if not photo_sent:
             sent = await bot.send_message(
                 chat_id=chat_id,
                 text=_text_message(post_text, channel_context),
@@ -585,7 +605,7 @@ async def publish_post(
                 chat_id=str(chat_id),
             )
             history.save(config.history_limit)
-        with_image = bool(image_payload)
+        with_image = photo_sent
         logger.info("Post sent to %s (image: %s)", chat_id, with_image)
         details = f"sent with image from {image_source}" if with_image else "sent without image"
         return PublishResult(
@@ -738,17 +758,37 @@ async def publish_custom_text(
         )
 
     try:
+        sent = None
+        photo_sent = False
         if image_payload:
             image_bytes, filename = image_payload
-            sent = await bot.send_photo(
-                chat_id=chat_id,
-                photo=BufferedInputFile(image_bytes, filename=filename),
-                caption=_caption(text, channel_context),
-                parse_mode=ParseMode.HTML,
-                show_caption_above_media=False,
-                disable_notification=True,
-            )
-        else:
+            try:
+                sent = await bot.send_photo(
+                    chat_id=chat_id,
+                    photo=BufferedInputFile(image_bytes, filename=filename),
+                    caption=_caption(text, channel_context),
+                    parse_mode=ParseMode.HTML,
+                    show_caption_above_media=False,
+                    disable_notification=True,
+                )
+                photo_sent = True
+            except Exception as photo_err:
+                logger.warning("publish_flow: send_photo with payload failed: %s", photo_err)
+
+        if not photo_sent and image_url:
+            try:
+                sent = await bot.send_photo(
+                    chat_id=chat_id,
+                    photo=image_url,
+                    caption=_caption(text, channel_context),
+                    parse_mode=ParseMode.HTML,
+                    disable_notification=True,
+                )
+                photo_sent = True
+            except Exception as photo_err:
+                logger.warning("publish_flow: send_photo with URL failed: %s", photo_err)
+
+        if not photo_sent:
             sent = await bot.send_message(
                 chat_id=chat_id,
                 text=_text_message(text, channel_context),
@@ -757,6 +797,15 @@ async def publish_custom_text(
                 disable_notification=True,
             )
         message_id, actual_chat_id, actual_title, message_link = _confirmed_message(sent, chat_id)
+
+        if use_db and publishing_post_id is not None and not photo_sent and image_payload:
+            await db.update_post_media(
+                pool,
+                publishing_post_id,
+                image_url=image_url,
+                image_source=image_source,
+                media_type=None,
+            )
 
         if use_db and publishing_post_id is not None:
             await db.mark_post_published(
@@ -767,7 +816,7 @@ async def publish_custom_text(
                 target_channel_title=actual_title,
                 telegram_message_link=message_link,
             )
-        with_image = bool(image_payload)
+        with_image = photo_sent
         logger.info("Custom post sent to %s (image: %s)", chat_id, with_image)
         return PublishResult(
             True, with_image, normalized_topic, "custom text published",
@@ -1004,28 +1053,48 @@ async def publish_prepared(post: dict, item: dict) -> PublishResult:
                     ImageResult(url=image_url, source=image_source or "custom"), config
                 )
 
+            sent = None
+            photo_sent = False
             if payload:
                 image_bytes, filename = payload
-                sent = await bot.send_photo(
-                    chat_id=chat_id,
-                    photo=BufferedInputFile(image_bytes, filename=filename),
-                    caption=_caption(text, channel_context),
-                    parse_mode=ParseMode.HTML,
-                    show_caption_above_media=False,
-                    disable_notification=True,
-                )
-                with_image = True
-            elif image_url:
-                # не удалось скачать — пробуем отправить по URL напрямую
-                sent = await bot.send_photo(
-                    chat_id=chat_id,
-                    photo=image_url,
-                    caption=_caption(text, channel_context),
-                    parse_mode=ParseMode.HTML,
-                    disable_notification=True,
-                )
-                with_image = True
-            else:
+                try:
+                    sent = await bot.send_photo(
+                        chat_id=chat_id,
+                        photo=BufferedInputFile(image_bytes, filename=filename),
+                        caption=_caption(text, channel_context),
+                        parse_mode=ParseMode.HTML,
+                        show_caption_above_media=False,
+                        disable_notification=True,
+                    )
+                    with_image = True
+                    photo_sent = True
+                except Exception as photo_err:
+                    logger.warning(
+                        "Scheduled post %s photo payload send failed: %s",
+                        post["id"],
+                        photo_err,
+                    )
+
+            if not photo_sent and image_url:
+                # не удалось скачать (или отправить байты) — пробуем отправить по URL напрямую
+                try:
+                    sent = await bot.send_photo(
+                        chat_id=chat_id,
+                        photo=image_url,
+                        caption=_caption(text, channel_context),
+                        parse_mode=ParseMode.HTML,
+                        disable_notification=True,
+                    )
+                    with_image = True
+                    photo_sent = True
+                except Exception as photo_err:
+                    logger.warning(
+                        "Scheduled post %s photo URL send failed: %s",
+                        post["id"],
+                        photo_err,
+                    )
+
+            if not photo_sent:
                 sent = await bot.send_message(
                     chat_id=chat_id,
                     text=_text_message(text, channel_context),
@@ -1033,6 +1102,7 @@ async def publish_prepared(post: dict, item: dict) -> PublishResult:
                     link_preview_options=LinkPreviewOptions(is_disabled=True),
                     disable_notification=True,
                 )
+                with_image = False
         message_id, actual_chat_id, actual_title, message_link = _confirmed_message(sent, chat_id)
         await db.update_post_media(
             pool,
