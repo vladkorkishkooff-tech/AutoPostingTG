@@ -512,8 +512,8 @@ export default function ChannelsPage() {
               <ChannelCard
                 key={c.id}
                 channel={c}
-                isSelected={selectedChannelId === c.id}
-                onSelect={() => selectChannel(c.id)}
+                isSelected={Number(selectedChannelId) === Number(c.id)}
+                onSelect={() => selectChannel(Number(c.id))}
                 onChanged={() => {
                   mutateConfig()
                   mutate()

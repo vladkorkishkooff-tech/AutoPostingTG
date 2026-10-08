@@ -40,7 +40,7 @@ export function ChannelSwitcher({ className = '' }: { className?: string }) {
   const validChannels = allChannels.filter((c) => c.chat_id && (c.chat_id.startsWith('@') || c.chat_id.startsWith('-100')))
 
   async function selectChannel(channelId: number) {
-    if (activeChannel?.id === channelId) {
+    if (Number(activeChannel?.id) === Number(channelId)) {
       setIsOpen(false)
       return
     }
@@ -174,8 +174,8 @@ export function ChannelSwitcher({ className = '' }: { className?: string }) {
               </p>
 
               {validChannels.map((channel) => {
-                const isSelected = activeChannel?.id === channel.id
-                const isBusy = switchingId === channel.id
+                const isSelected = Number(activeChannel?.id) === Number(channel.id)
+                const isBusy = Number(switchingId) === Number(channel.id)
 
                 return (
                   <button

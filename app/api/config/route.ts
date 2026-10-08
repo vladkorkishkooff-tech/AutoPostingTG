@@ -61,7 +61,7 @@ export async function GET(request: Request) {
     ])
 
     const selectedId = userRows[0]?.selected_channel_id ? Number(userRows[0].selected_channel_id) : null
-    let activeChannel = channels.find((c) => c.id === selectedId)
+    let activeChannel = channels.find((c) => Number(c.id) === selectedId)
     if (!activeChannel) {
       activeChannel = channels.find((c) => c.is_active && c.is_verified && c.bot_can_post)
         || channels.find((c) => c.is_active)
@@ -71,7 +71,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       channel: activeChannel,
-      selectedChannelId: activeChannel?.id ?? null,
+      selectedChannelId: activeChannel?.id ? Number(activeChannel.id) : null,
       channels,
       providers,
       runtime: {
