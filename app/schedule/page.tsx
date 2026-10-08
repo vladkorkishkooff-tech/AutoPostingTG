@@ -42,6 +42,7 @@ const MODES = [
 export default function SchedulePage() {
   const { data, mutate, isLoading } = useSWR<{ schedules: Schedule[] }>('/api/schedules', fetcher)
   const { data: channelsData, mutate: mutateChannels } = useSWR<{ channels: Channel[] }>('/api/channels', fetcher)
+  const { data: config } = useSWR<{ channel: Channel | null; selectedChannelId?: number | null }>('/api/config', fetcher)
   const [time, setTime] = useState('11:00')
   const [slotTopic, setSlotTopic] = useState('')
   const [slotMode, setSlotMode] = useState('')
@@ -53,6 +54,7 @@ export default function SchedulePage() {
   const channels = (channelsData?.channels ?? []).filter(
     (c) => c.is_active && c.is_verified && c.bot_can_post,
   )
+  const effectiveChannelId = channelId !== '' ? channelId : (config?.selectedChannelId ?? channels[0]?.id ?? '')
 
   async function addSchedule() {
     haptic('medium')
@@ -66,7 +68,7 @@ export default function SchedulePage() {
           postTime: time,
           topic: slotTopic.trim() || undefined,
           mode: slotMode || undefined,
-          channelId: channelId || undefined,
+          channelId: effectiveChannelId || undefined,
         }),
       })
       if (!response.ok) {
@@ -188,7 +190,7 @@ export default function SchedulePage() {
                 <label className="flex flex-col gap-1.5">
                   <span className="text-[12px] font-medium text-muted-foreground">Канал</span>
                   <select
-                    value={channelId}
+                    value={effectiveChannelId}
                     onChange={(e) => setChannelId(e.target.value ? Number(e.target.value) : '')}
                     className="rounded-lg border border-border bg-muted px-3 py-2.5 text-sm outline-none focus:border-primary/50"
                   >

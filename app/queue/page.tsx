@@ -382,10 +382,19 @@ function QueueCard({ post, onChanged }: { post: QueuedPost; onChanged: () => voi
 }
 
 export default function QueuePage() {
-  const { data, mutate, isLoading } = useSWR<{ posts: QueuedPost[] }>('/api/queue', fetcher, {
+  const [selectedChannelFilter, setSelectedChannelFilter] = useState<number | null>(null)
+  const queueUrl = selectedChannelFilter ? `/api/queue?channelId=${selectedChannelFilter}` : '/api/queue'
+
+  const { data, mutate, isLoading } = useSWR<{ posts: QueuedPost[] }>(queueUrl, fetcher, {
     refreshInterval: 30_000,
   })
+  const { data: channelsData } = useSWR<{ channels: { id: number; chat_id: string; title: string | null }[] }>(
+    '/api/channels',
+    fetcher,
+  )
+
   const posts = data?.posts ?? []
+  const channels = channelsData?.channels ?? []
 
   return (
     <div className="pb-24">
@@ -395,6 +404,42 @@ export default function QueuePage() {
       />
 
       <div className="fade-up flex flex-col gap-4 px-5 py-6">
+        {channels.length > 1 ? (
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+            <button
+              type="button"
+              onClick={() => {
+                haptic('light')
+                setSelectedChannelFilter(null)
+              }}
+              className={`pressable rounded-full px-3 py-1 text-[12px] font-medium transition-colors ${
+                selectedChannelFilter === null
+                  ? 'border border-primary/50 bg-primary/15 text-foreground'
+                  : 'border border-border bg-white/[0.03] text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Все каналы
+            </button>
+            {channels.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => {
+                  haptic('light')
+                  setSelectedChannelFilter(c.id)
+                }}
+                className={`pressable rounded-full px-3 py-1 text-[12px] font-medium transition-colors whitespace-nowrap ${
+                  selectedChannelFilter === c.id
+                    ? 'border border-primary/50 bg-primary/15 text-foreground'
+                    : 'border border-border bg-white/[0.03] text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {c.title || c.chat_id}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         {isLoading ? (
           <div className="flex flex-col gap-3">
             <Skeleton className="h-[180px] !rounded-xl" />

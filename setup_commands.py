@@ -72,21 +72,9 @@ async def _owner_id(pool, message: types.Message) -> int:
 
 
 async def _current_channel(pool, message: types.Message) -> dict | None:
-    """Выбранный канал админа, иначе первый активный, иначе None."""
+    """Выбранный активный канал владельца из БД, либо первый активный."""
     owner = await _owner_id(pool, message)
-    channels = await db.owner_channels(pool, owner)
-    if not channels:
-        return None
-    admin_id = message.from_user.id if message.from_user else 0
-    selected = _selected_channel.get(admin_id)
-    if selected:
-        for ch in channels:
-            if ch["id"] == selected and ch["is_active"] and ch.get("is_verified") and ch.get("bot_can_post"):
-                return ch
-    for ch in channels:
-        if ch["is_active"] and ch.get("is_verified") and ch.get("bot_can_post"):
-            return ch
-    return None
+    return await db.get_user_active_channel(pool, owner)
 
 
 async def _verify_channel(message: types.Message, target: str) -> dict:
@@ -182,27 +170,171 @@ async def cmd_setup(message: types.Message):
     )
 
 
-@router.message(Command("channels"))
+async def build_channel_control_panel(pool, owner_id: int) -> tuple[str, types.InlineKeyboardMarkup]:
+    """Формирует интерактивный центр управления каналами в едином стиле EDITH."""
+    channels = await db.owner_channels(pool, owner_id)
+    if not channels:
+        text = (
+            "⚡ <b>EDITH — Центр управления каналами</b>\n\n"
+            "Каналы ещё не подключены.\n\n"
+            "Чтобы добавить канал:\n"
+            "1. Добавьте бота <b>@EDITHformebot</b> администратором в канал с правом публикации.\n"
+            "2. Отправьте: <code>/addchannel @username [тема]</code>"
+        )
+        kb = types.InlineKeyboardMarkup(
+            inline_keyboard=[
+                [types.InlineKeyboardButton(text="➕ Как добавить канал", callback_data="ch_add_help")],
+                [types.InlineKeyboardButton(text="🔄 Обновить список", callback_data="ch_refresh")],
+            ]
+        )
+        return text, kb
+
+    active_ch = await db.get_user_active_channel(pool, owner_id)
+    active_id = active_ch["id"] if active_ch else None
+
+    active_title = (active_ch.get("title") or active_ch.get("telegram_title") or active_ch.get("chat_id")) if active_ch else "Не выбран"
+    active_chat = html.escape(str(active_ch.get("chat_id") or "—")) if active_ch else "—"
+    active_topic = html.escape(str(active_ch.get("topic") or "—")) if active_ch else "—"
+    active_mode = html.escape(str(active_ch.get("mode") or "—")) if active_ch else "—"
+    active_media = html.escape(str(active_ch.get("image_policy") or "auto")) if active_ch else "auto"
+
+    text = (
+        "⚡ <b>EDITH — Центр управления каналами</b>\n\n"
+        f"🎯 <b>Текущий активный канал:</b>\n"
+        f"👉 <b>{html.escape(str(active_title))}</b> (<code>{active_chat}</code>)\n"
+        f"• <b>Тема:</b> <code>{active_topic}</code>\n"
+        f"• <b>Режим:</b> <code>{active_mode}</code>\n"
+        f"• <b>Медиа:</b> <code>{active_media}</code>\n\n"
+        "👇 <b>Нажмите на канал ниже, чтобы сделать его активным:</b>"
+    )
+
+    rows = []
+    for ch in channels:
+        is_selected = (ch["id"] == active_id)
+        icon = "🟢" if is_selected else "⚪"
+        ch_name = ch.get("title") or ch.get("telegram_title") or ch["chat_id"]
+        ch_chat = ch["chat_id"]
+        btn_text = f"{icon} {ch_name} ({ch_chat})"
+        if len(btn_text) > 42:
+            btn_text = f"{icon} {ch_chat}"
+        cb = f"ch_active:{ch['id']}" if is_selected else f"ch_select:{ch['id']}"
+        rows.append([types.InlineKeyboardButton(text=btn_text, callback_data=cb)])
+
+    action_row = []
+    if active_id:
+        action_row.append(types.InlineKeyboardButton(text="⚙️ Настройки", callback_data=f"ch_setup:{active_id}"))
+    action_row.append(types.InlineKeyboardButton(text="➕ Добавить", callback_data="ch_add_help"))
+    action_row.append(types.InlineKeyboardButton(text="🔄 Обновить", callback_data="ch_refresh"))
+    rows.append(action_row)
+
+    kb = types.InlineKeyboardMarkup(inline_keyboard=rows)
+    return text, kb
+
+
+@router.message(Command("channels", "channel"))
 async def cmd_channels(message: types.Message):
     if await _guard(message):
         return
     pool = await _pool()
     owner = await _owner_id(pool, message)
+    text, kb = await build_channel_control_panel(pool, owner)
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("ch_select:"))
+async def cb_select_channel(callback: types.CallbackQuery):
+    pool = await _pool()
+    owner = await _owner_id(pool, callback)
+    ch_id = int(callback.data.split(":", 1)[1])
     channels = await db.owner_channels(pool, owner)
-    if not channels:
-        await message.answer(
-            "Каналов нет. Добавьте: <code>/addchannel @вашканал тема</code>", parse_mode="HTML"
-        )
+    target = next((ch for ch in channels if ch["id"] == ch_id), None)
+    if not target:
+        await callback.answer("Канал не найден.", show_alert=True)
         return
-    current = await _current_channel(pool, message)
-    current_id = current["id"] if current else None
-    lines = [_channel_line(i + 1, ch, current_id) for i, ch in enumerate(channels)]
-    await message.answer(
-        "<b>Ваши каналы</b> (→ выбран для настройки):\n\n"
-        + "\n".join(lines)
-        + "\n\nПереключить: <code>/usechannel номер</code>",
+    if not target.get("is_verified") or not target.get("bot_can_post") or not target.get("is_active"):
+        await callback.answer("Этот канал не готов к публикации. Проверьте права бота.", show_alert=True)
+        return
+    await db.set_user_selected_channel_id(pool, owner, ch_id)
+    admin_id = callback.from_user.id if callback.from_user else 0
+    _selected_channel[admin_id] = ch_id
+    await callback.answer(f"✅ Активный канал: {target['chat_id']}")
+    text, kb = await build_channel_control_panel(pool, owner)
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        pass
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("ch_active:"))
+async def cb_active_channel(callback: types.CallbackQuery):
+    await callback.answer("Этот канал уже выбран как активный!")
+
+
+@router.callback_query(lambda c: c.data == "ch_refresh")
+async def cb_refresh_channels(callback: types.CallbackQuery):
+    pool = await _pool()
+    owner = await _owner_id(pool, callback)
+    text, kb = await build_channel_control_panel(pool, owner)
+    await callback.answer("Список обновлен")
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        pass
+
+
+@router.callback_query(lambda c: c.data == "ch_add_help")
+async def cb_add_help(callback: types.CallbackQuery):
+    await callback.answer()
+    await callback.message.reply(
+        "➕ <b>Подключение нового канала:</b>\n\n"
+        "1. Добавьте бота <b>@EDITHformebot</b> администратором в канал.\n"
+        "2. Выдайте боту право <b>«Публикация сообщений»</b>.\n"
+        "3. Отправьте команду:\n"
+        "<code>/addchannel @username [тема]</code>\n\n"
+        "<i>Например:</i> <code>/addchannel @AI_toolsSsS нейросети</code>",
         parse_mode="HTML",
     )
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("ch_setup:"))
+async def cb_channel_setup(callback: types.CallbackQuery):
+    await callback.answer()
+    pool = await _pool()
+    ch_id = int(callback.data.split(":", 1)[1])
+    channels = await db.owner_channels(pool, await _owner_id(pool, callback))
+    ch = next((c for c in channels if c["id"] == ch_id), None)
+    if not ch:
+        return
+    slots = await db.schedules_for_channel(pool, ch["id"])
+    topics = await db.pool_topics(pool, ch["id"])
+    active_topics = [t for t in topics if t["is_active"]]
+
+    slots_text = (
+        "\n".join(
+            f"   {str(s['post_time'])[:5]}"
+            + (f" · {html.escape(s['topic'])}" if s.get("topic") else "")
+            + (f" · {s['mode']}" if s.get("mode") else "")
+            + ("" if s["is_active"] else " (выкл)")
+            for s in slots
+        )
+        or "   нет слотов — добавьте: /addtime 09:00"
+    )
+    topics_text = (
+        "\n".join(f"   {t['id']}. {html.escape(t['topic'])}" for t in active_topics[:10])
+        or "   пул пуст — используется тема канала"
+    )
+
+    setup_msg = (
+        f"⚙️ <b>Настройки канала {html.escape(str(ch['chat_id']))}</b>\n\n"
+        f"Канал: <b>{html.escape(str(ch['chat_id']))}</b>\n"
+        f"Тема: <code>{html.escape(ch['topic'] or '—')}</code>\n"
+        f"Режим: <code>{ch['mode'] or '—'}</code>\n"
+        f"Медиа: <code>{ch.get('image_policy') or 'auto'}</code>\n\n"
+        f"<b>Расписание</b> ({len(slots)}):\n{slots_text}\n\n"
+        f"<b>Пул тем</b> ({len(active_topics)}):\n{topics_text}\n\n"
+        f"Команды: /settopic /setmode /setmedia /addtime /deltime /channels"
+    )
+    await callback.message.reply(setup_msg, parse_mode="HTML")
 
 
 @router.message(Command("addchannel"))
@@ -255,6 +387,7 @@ async def cmd_addchannel(message: types.Message, command: CommandObject):
     )
     admin_id = message.from_user.id if message.from_user else 0
     _selected_channel[admin_id] = channel_id
+    await db.set_user_selected_channel_id(pool, owner, channel_id)
     await message.answer(
         f"Канал <b>{html.escape(chat_ref)}</b> добавлен и выбран для настройки.\n"
         f"Тема: {html.escape(topic)}\n\n"
@@ -285,6 +418,7 @@ async def cmd_usechannel(message: types.Message, command: CommandObject):
         return
     admin_id = message.from_user.id if message.from_user else 0
     _selected_channel[admin_id] = ch["id"]
+    await db.set_user_selected_channel_id(pool, owner, ch["id"])
     await message.answer(
         f"Выбран канал <b>{html.escape(str(ch['chat_id']))}</b>. Все команды настройки применяются к нему.",
         parse_mode="HTML",

@@ -16,6 +16,7 @@ import {
   Clock,
 } from 'lucide-react'
 import { PageHeader, StatCard, Skeleton, SectionTitle } from '@/components/ui'
+import { ChannelSwitcher } from '@/components/channel-switcher'
 import { swrFetcher as fetcher, haptic } from '@/lib/client'
 
 type Stats = {
@@ -80,8 +81,22 @@ function Sparkline({ data }: { data: number[] }) {
   )
 }
 
+type ConfigChannel = {
+  id: number
+  chat_id: string
+  title: string | null
+  telegram_title?: string | null
+  topic?: string
+  mode?: string
+  is_active: boolean
+  is_verified?: boolean
+  bot_can_post?: boolean
+}
+
 type ConfigData = {
-  channel: { chat_id: string; is_active: boolean } | null
+  channel: ConfigChannel | null
+  selectedChannelId?: number | null
+  channels: ConfigChannel[]
   providers: { provider: string; is_enabled: boolean }[]
 }
 
@@ -328,6 +343,8 @@ export default function DashboardPage() {
           <DashboardSkeleton />
         ) : (
           <>
+            <ChannelSwitcher />
+
             {setupComplete ? (
               <ActiveHero
                 chatId={config?.channel?.chat_id ?? ''}
@@ -339,6 +356,46 @@ export default function DashboardPage() {
             ) : (
               <OnboardingCard hasChannel={hasChannel} hasKey={hasKey} hasSchedule={hasSchedule} />
             )}
+
+            <section aria-label="Центр каналов" className="flex flex-col gap-3">
+              <SectionTitle
+                action={
+                  <Link
+                    href="/more/channels"
+                    onClick={() => haptic('light')}
+                    className="text-[12px] text-primary hover:underline flex items-center gap-1"
+                  >
+                    Все каналы ({config?.channels?.length ?? 1}) →
+                  </Link>
+                }
+              >
+                Управление каналами
+              </SectionTitle>
+              <div className="glass flex flex-col gap-3 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <Radio size={14} aria-hidden="true" />
+                    </span>
+                    <div className="flex flex-col min-w-0">
+                      <span className="truncate text-[13px] font-semibold text-foreground">
+                        {config?.channel?.title || config?.channel?.chat_id || 'Канал не выбран'}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground">
+                        {config?.channel?.chat_id} · {data?.queued ?? 0} в очереди
+                      </span>
+                    </div>
+                  </div>
+                  <Link
+                    href="/more/channels"
+                    onClick={() => haptic('light')}
+                    className="btn-outline-green pressable px-3 py-1.5 text-[11px] shrink-0"
+                  >
+                    Настроить
+                  </Link>
+                </div>
+              </div>
+            </section>
 
             {setupComplete ? (
               <section aria-label="Показатели" className="flex flex-col gap-3">

@@ -194,6 +194,62 @@ async def owner_channels(pool: asyncpg.Pool, user_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+async def get_user_selected_channel_id(pool: asyncpg.Pool, user_id: int) -> int | None:
+    row = await pool.fetchrow(
+        "SELECT selected_channel_id FROM users WHERE id = $1",
+        user_id,
+    )
+    return row["selected_channel_id"] if row else None
+
+
+async def set_user_selected_channel_id(pool: asyncpg.Pool, user_id: int, channel_id: int | None) -> None:
+    await pool.execute(
+        "UPDATE users SET selected_channel_id = $2, updated_at = now() WHERE id = $1",
+        user_id,
+        channel_id,
+    )
+
+
+async def get_user_active_channel(pool: asyncpg.Pool, user_id: int) -> dict | None:
+    """Возвращает текущий активный канал пользователя.
+
+    Сначала проверяет сохранённый selected_channel_id, если он активен и проверен.
+    Если не задан или недоступен — берёт первый активный проверенный канал и сохраняет выбор.
+    """
+    selected_id = await get_user_selected_channel_id(pool, user_id)
+    if selected_id:
+        row = await pool.fetchrow(
+            """
+            SELECT id, chat_id, title, topic, mode, image_policy, is_active,
+                   is_verified, telegram_chat_id, telegram_title, telegram_username,
+                   bot_can_post, verified_at, verification_error, footer_title, footer_url
+            FROM channels
+            WHERE id = $1 AND user_id = $2 AND is_active = true AND is_verified = true AND bot_can_post = true
+            """,
+            selected_id,
+            user_id,
+        )
+        if row:
+            return dict(row)
+
+    row = await pool.fetchrow(
+        """
+        SELECT id, chat_id, title, topic, mode, image_policy, is_active,
+               is_verified, telegram_chat_id, telegram_title, telegram_username,
+               bot_can_post, verified_at, verification_error, footer_title, footer_url
+        FROM channels
+        WHERE user_id = $1 AND is_active = true AND is_verified = true AND bot_can_post = true
+        ORDER BY id
+        LIMIT 1
+        """,
+        user_id,
+    )
+    if row:
+        await set_user_selected_channel_id(pool, user_id, row["id"])
+        return dict(row)
+    return None
+
+
 async def channel_for_owner_target(
     pool: asyncpg.Pool, user_id: int, chat_id: str | int
 ) -> dict | None:

@@ -2,6 +2,7 @@ import asyncio
 import aiohttp
 import html
 import logging
+import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -70,9 +71,14 @@ dp.include_router(
 
 BTN_PREVIEW = "🔎 Preview"
 BTN_POST = "🚀 Post"
-BTN_TEST = "⚙️ Test"
-BTN_MODES = "🎛 Modes"
-BTN_HELP = "❓ Help"
+BTN_CHANNELS = "📡 Каналы"
+BTN_SETUP = "⚙️ Настройка"
+BTN_MODES = "🎛 Режимы"
+BTN_HELP = "❓ Справка"
+
+BTN_TEST_LEGACY = "⚙️ Test"
+BTN_MODES_LEGACY = "🎛 Modes"
+BTN_HELP_LEGACY = "❓ Help"
 
 
 @dataclass(frozen=True)
@@ -240,42 +246,66 @@ async def _persist_channel_verification_failure(
         logger.exception("Failed to persist channel verification failure")
 
 
+async def _resolve_active_channel_context(message: types.Message) -> tuple[dict | None, int | None]:
+    if not config.database_url or not message.from_user:
+        return None, None
+    try:
+        pool = await db.get_pool(config.database_url)
+        owner_id = await db.ensure_user(pool, message.from_user.id, message.from_user.username)
+        ch = await db.get_user_active_channel(pool, owner_id)
+        return ch, owner_id
+    except Exception:
+        logger.exception("Failed to resolve active channel context")
+        return None, None
+
+
 def _main_keyboard() -> ReplyKeyboardMarkup:
+    rows = [
+        [KeyboardButton(text=BTN_PREVIEW), KeyboardButton(text=BTN_POST)],
+        [KeyboardButton(text=BTN_CHANNELS), KeyboardButton(text=BTN_SETUP)],
+    ]
+    if config.web_app_url:
+        rows.append([
+            KeyboardButton(text="🚀 Mini App", web_app=WebAppInfo(url=config.web_app_url)),
+            KeyboardButton(text=BTN_HELP),
+        ])
+    else:
+        rows.append([KeyboardButton(text=BTN_MODES), KeyboardButton(text=BTN_HELP)])
+
     return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text=BTN_PREVIEW), KeyboardButton(text=BTN_POST)],
-            [KeyboardButton(text=BTN_TEST), KeyboardButton(text=BTN_MODES)],
-            [KeyboardButton(text=BTN_HELP)],
-        ],
+        keyboard=rows,
         resize_keyboard=True,
-        input_field_placeholder="Выберите действие или введите /preview funny космос",
+        input_field_placeholder="EDITH: управление каналами и контентом",
     )
 
 
-def _help_text() -> str:
+def _help_text(channel: dict | None = None) -> str:
+    target_name = (channel.get("title") or channel.get("telegram_title") or channel.get("chat_id")) if channel else (config.channel_id or "не задан")
+    topic = (channel.get("topic") if channel else None) or config.default_topic
+    mode = normalize_mode((channel.get("mode") if channel else None) or config.default_mode, config)
+    media = (channel.get("image_policy") if channel else None) or "auto"
+
     return (
-        "AI Content Manager\n\n"
-        "Кнопки меню:\n"
-        f"{BTN_PREVIEW} - preview с темой и режимом по умолчанию\n"
-        f"{BTN_POST} - публикация в канал с темой и режимом по умолчанию\n"
-        f"{BTN_TEST} - проверка конфигурации\n"
-        f"{BTN_MODES} - список режимов\n"
-        f"{BTN_HELP} - справка\n\n"
-        "Команды с аргументами:\n"
-        "/post [режим] [тема] - отправить пост в канал\n"
-        "/preview [режим] [тема] - отправить тестовый пост в этот чат\n"
-        "/modes - показать режимы\n"
-        "/test - проверить конфигурацию\n\n"
-        "Настройка системы (всё как в Mini App):\n"
-        "/setup - обзор текущей настройки\n"
-        "/channels, /addchannel, /usechannel - каналы\n"
-        "/settopic, /setmode, /setmedia - тема, режим, медиа\n"
-        "/times, /addtime, /deltime - расписание\n"
-        "/topics, /addtopic, /deltopic - пул тем\n\n"
-        "Примеры:\n"
-        "/post wow космос\n"
-        "/addchannel @mychannel космос\n"
-        "/addtime 09:00 история funny"
+        "⚡ <b>EDITH — Центр управления контентом</b>\n\n"
+        f"🎯 <b>Активный канал автопостинга:</b>\n"
+        f"👉 <b>{html.escape(str(target_name))}</b>\n"
+        f"• Тема: <code>{html.escape(topic)}</code>\n"
+        f"• Режим: <code>{html.escape(mode)}</code>\n"
+        f"• Медиа: <code>{html.escape(media)}</code>\n\n"
+        "<b>Кнопки быстрого управления:</b>\n"
+        f"• <b>{BTN_PREVIEW}</b> — предпросмотр под активный канал\n"
+        f"• <b>{BTN_POST}</b> — публикация в активный канал\n"
+        f"• <b>{BTN_CHANNELS}</b> — выбор и переключение каналов\n"
+        f"• <b>{BTN_SETUP}</b> — расписание и параметры активного канала\n"
+        f"• <b>{BTN_MODES}</b> — список стилей генерации\n\n"
+        "<b>Команды:</b>\n"
+        "/channels — интерактивный центр выбора каналов\n"
+        "/setup — расписание и статус канала\n"
+        "/post [режим] [тема] — принудительный пост\n"
+        "/preview [режим] [тема] — тест генерации в чат\n"
+        "/times, /addtime, /deltime — расписание автопостинга\n"
+        "/topics, /addtopic, /deltopic — пул тем канала\n"
+        "/test — системная диагностика"
     )
 
 
@@ -1181,19 +1211,15 @@ async def run_metrics_collector() -> None:
 async def cmd_help(message: types.Message):
     if await _deny_if_needed(message):
         return
-    await message.answer(_help_text(), reply_markup=_main_keyboard())
+    ch, _ = await _resolve_active_channel_context(message)
+    await message.answer(_help_text(ch), reply_markup=_main_keyboard(), parse_mode="HTML")
+    inline_buttons = []
+    if config.database_url:
+        inline_buttons.append([InlineKeyboardButton(text="📡 Центр управления каналами", callback_data="ch_refresh")])
     if config.web_app_url:
-        inline_kb = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="🚀 Открыть Mini App",
-                        web_app=WebAppInfo(url=config.web_app_url),
-                    )
-                ]
-            ]
-        )
-        await message.answer("Панель управления доступна в Telegram Mini App:", reply_markup=inline_kb)
+        inline_buttons.append([InlineKeyboardButton(text="🚀 Открыть Mini App", web_app=WebAppInfo(url=config.web_app_url))])
+    if inline_buttons:
+        await message.answer("Быстрый переход:", reply_markup=InlineKeyboardMarkup(inline_keyboard=inline_buttons))
 
 
 @dp.message(Command("app", "webapp"))
@@ -1220,7 +1246,8 @@ async def cmd_app(message: types.Message):
 async def cmd_menu(message: types.Message):
     if await _deny_if_needed(message):
         return
-    await message.answer("Меню включено.", reply_markup=_main_keyboard())
+    ch, _ = await _resolve_active_channel_context(message)
+    await message.answer(_help_text(ch), reply_markup=_main_keyboard(), parse_mode="HTML")
 
 
 @dp.message(Command("modes"))
@@ -1234,11 +1261,28 @@ async def cmd_modes(message: types.Message):
 async def cmd_post(message: types.Message, command: CommandObject):
     if await _deny_if_needed(message):
         return
+    ch, owner_id = await _resolve_active_channel_context(message)
     parsed = _parse_command_args(command.args)
-    await message.answer(f"Готовлю пост для канала. Тема: {parsed.topic}. Режим: {parsed.mode}")
-    result = await publish_post(parsed.topic, mode=parsed.mode)
+    has_args = bool(command.args and command.args.strip())
+    target_chat = (ch.get("telegram_chat_id") or ch.get("chat_id")) if ch else config.channel_id
+    topic = parsed.topic if has_args else ((ch.get("topic") if ch else None) or config.default_topic)
+    mode = parsed.mode if has_args else normalize_mode(ch.get("mode") if ch else config.default_mode, config)
+    ch_label = (ch.get("title") or ch.get("telegram_title") or ch.get("chat_id")) if ch else str(target_chat)
+
+    await message.answer(
+        f"Готовлю публикацию в <b>{html.escape(str(ch_label))}</b>\n"
+        f"Тема: <code>{html.escape(topic)}</code> · Режим: <code>{html.escape(mode)}</code>",
+        parse_mode="HTML",
+    )
+    result = await publish_post(
+        topic,
+        target_chat=target_chat,
+        mode=mode,
+        image_policy=ch.get("image_policy") if ch else None,
+        owner_telegram_id=message.from_user.id if message.from_user else None,
+    )
     status = "отправлен" if result.ok else "не отправлен"
-    image_status = "с изображением" if result.with_image else "��ез изображения"
+    image_status = "с изображением" if result.with_image else "без изображения"
     await message.answer(f"Пост {status}: {image_status}. Детали: {result.details}")
 
 
@@ -1246,9 +1290,25 @@ async def cmd_post(message: types.Message, command: CommandObject):
 async def cmd_preview(message: types.Message, command: CommandObject):
     if await _deny_if_needed(message):
         return
+    ch, owner_id = await _resolve_active_channel_context(message)
     parsed = _parse_command_args(command.args)
-    await message.answer(f"Готовлю preview в этот чат. Тема: {parsed.topic}. Режим: {parsed.mode}")
-    result = await publish_post(parsed.topic, target_chat=message.chat.id, mode=parsed.mode)
+    has_args = bool(command.args and command.args.strip())
+    topic = parsed.topic if has_args else ((ch.get("topic") if ch else None) or config.default_topic)
+    mode = parsed.mode if has_args else normalize_mode(ch.get("mode") if ch else config.default_mode, config)
+    ch_label = (ch.get("title") or ch.get("telegram_title") or ch.get("chat_id")) if ch else "по умолчанию"
+
+    await message.answer(
+        f"Готовлю preview для канала <b>{html.escape(str(ch_label))}</b>\n"
+        f"Тема: <code>{html.escape(topic)}</code> · Режим: <code>{html.escape(mode)}</code>",
+        parse_mode="HTML",
+    )
+    result = await publish_post(
+        topic,
+        target_chat=message.chat.id,
+        mode=mode,
+        image_policy=ch.get("image_policy") if ch else None,
+        owner_telegram_id=message.from_user.id if message.from_user else None,
+    )
     status = "готов" if result.ok else "не отправлен"
     image_status = "с изображением" if result.with_image else "без изображения"
     await message.answer(f"Preview {status}: {image_status}. Детали: {result.details}")
@@ -1284,13 +1344,47 @@ async def cmd_test(message: types.Message):
     )
 
 
+@dp.message(lambda message: message.text in {BTN_CHANNELS, "📡 Выбор канала", "📡 Канал"})
+async def btn_channels(message: types.Message):
+    if await _deny_if_needed(message):
+        return
+    if not config.database_url:
+        await message.answer(f"Бот работает в режиме .env. Текущий канал: {config.channel_id}")
+        return
+    pool = await db.get_pool(config.database_url)
+    owner = await db.ensure_user(pool, message.from_user.id, message.from_user.username)
+    text, kb = await _setup_commands.build_channel_control_panel(pool, owner)
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+@dp.message(lambda message: message.text in {BTN_SETUP, "⚙️ Настройка", "⚙️ Настройки"})
+async def btn_setup(message: types.Message):
+    if await _deny_if_needed(message):
+        return
+    await _setup_commands.cmd_setup(message)
+
+
 @dp.message(lambda message: message.text == BTN_PREVIEW)
 async def btn_preview(message: types.Message):
     if await _deny_if_needed(message):
         return
-    mode = normalize_mode(config.default_mode, config)
-    await message.answer(f"Готовлю preview. Тема: {config.default_topic}. Режим: {mode}")
-    result = await publish_post(config.default_topic, target_chat=message.chat.id, mode=mode)
+    ch, owner_id = await _resolve_active_channel_context(message)
+    topic = (ch.get("topic") if ch else None) or config.default_topic
+    mode = normalize_mode(ch.get("mode") if ch else config.default_mode, config)
+    ch_label = (ch.get("title") or ch.get("telegram_title") or ch.get("chat_id")) if ch else "по умолчанию"
+
+    await message.answer(
+        f"Готовлю preview для канала <b>{html.escape(str(ch_label))}</b>\n"
+        f"Тема: <code>{html.escape(topic)}</code> · Режим: <code>{html.escape(mode)}</code>",
+        parse_mode="HTML",
+    )
+    result = await publish_post(
+        topic,
+        target_chat=message.chat.id,
+        mode=mode,
+        image_policy=ch.get("image_policy") if ch else None,
+        owner_telegram_id=message.from_user.id if message.from_user else None,
+    )
     status = "готов" if result.ok else "не отправлен"
     await message.answer(f"Preview {status}. Детали: {result.details}", reply_markup=_main_keyboard())
 
@@ -1299,30 +1393,46 @@ async def btn_preview(message: types.Message):
 async def btn_post(message: types.Message):
     if await _deny_if_needed(message):
         return
-    mode = normalize_mode(config.default_mode, config)
-    await message.answer(f"Публикую в канал. Тема: {config.default_topic}. Режим: {mode}")
-    result = await publish_post(config.default_topic, mode=mode)
+    ch, owner_id = await _resolve_active_channel_context(message)
+    target_chat = (ch.get("telegram_chat_id") or ch.get("chat_id")) if ch else config.channel_id
+    topic = (ch.get("topic") if ch else None) or config.default_topic
+    mode = normalize_mode(ch.get("mode") if ch else config.default_mode, config)
+    ch_label = (ch.get("title") or ch.get("telegram_title") or ch.get("chat_id")) if ch else str(target_chat)
+
+    await message.answer(
+        f"Публикую в <b>{html.escape(str(ch_label))}</b>\n"
+        f"Тема: <code>{html.escape(topic)}</code> · Режим: <code>{html.escape(mode)}</code>",
+        parse_mode="HTML",
+    )
+    result = await publish_post(
+        topic,
+        target_chat=target_chat,
+        mode=mode,
+        image_policy=ch.get("image_policy") if ch else None,
+        owner_telegram_id=message.from_user.id if message.from_user else None,
+    )
     status = "отправлен" if result.ok else "не отправлен"
     await message.answer(f"Пост {status}. Детали: {result.details}", reply_markup=_main_keyboard())
 
 
-@dp.message(lambda message: message.text == BTN_TEST)
-async def btn_test(message: types.Message):
+@dp.message(lambda message: message.text in {BTN_TEST_LEGACY, "⚙️ Test"})
+async def btn_test_legacy(message: types.Message):
     await cmd_test(message)
 
 
-@dp.message(lambda message: message.text == BTN_MODES)
+@dp.message(lambda message: message.text in {BTN_MODES, BTN_MODES_LEGACY})
 async def btn_modes(message: types.Message):
     if await _deny_if_needed(message):
         return
     await message.answer(_modes_text(), reply_markup=_main_keyboard())
 
 
-@dp.message(lambda message: message.text == BTN_HELP)
+@dp.message(lambda message: message.text in {BTN_HELP, BTN_HELP_LEGACY})
 async def btn_help(message: types.Message):
     if await _deny_if_needed(message):
         return
-    await message.answer(_help_text(), reply_markup=_main_keyboard())
+    ch, _ = await _resolve_active_channel_context(message)
+    await message.answer(_help_text(ch), reply_markup=_main_keyboard(), parse_mode="HTML")
 
 
 async def periodic_posting():

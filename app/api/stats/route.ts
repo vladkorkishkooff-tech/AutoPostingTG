@@ -59,6 +59,16 @@ export async function GET(request: Request) {
   try {
     const user = await getAuthUser(request)
     if (!user) return unauthorized()
+
+    const url = new URL(request.url)
+    const paramChannelId = url.searchParams.get('channelId')
+    let channelIdFilter: number | null = paramChannelId ? Number(paramChannelId) : null
+
+    if (!channelIdFilter || Number.isNaN(channelIdFilter)) {
+      const userRows = await sql`SELECT selected_channel_id FROM users WHERE id = ${user.userId}`
+      channelIdFilter = userRows[0]?.selected_channel_id ? Number(userRows[0].selected_channel_id) : null
+    }
+
     const [totals] = await sql`
       SELECT
         count(*) FILTER (WHERE p.status = 'published') AS total_posts,
@@ -67,6 +77,7 @@ export async function GET(request: Request) {
       FROM posts p
       JOIN channels c ON c.id = p.channel_id
       WHERE c.user_id = ${user.userId}
+        AND (${channelIdFilter}::int IS NULL OR c.id = ${channelIdFilter})
         AND (c.chat_id ~ '^@[A-Za-z0-9_]{5,32}$' OR c.chat_id ~ '^-100[0-9]{6,}$')
     `
     const [lastPost] = await sql`
@@ -74,6 +85,7 @@ export async function GET(request: Request) {
       FROM posts p
       JOIN channels c ON c.id = p.channel_id
       WHERE p.status = 'published' AND c.user_id = ${user.userId}
+        AND (${channelIdFilter}::int IS NULL OR c.id = ${channelIdFilter})
         AND (c.chat_id ~ '^@[A-Za-z0-9_]{5,32}$' OR c.chat_id ~ '^-100[0-9]{6,}$')
       ORDER BY p.published_at DESC
       LIMIT 1
@@ -86,6 +98,7 @@ export async function GET(request: Request) {
       JOIN channels c ON c.id = s.channel_id
       WHERE s.is_active AND c.is_active AND c.is_verified AND c.bot_can_post
         AND c.user_id = ${user.userId}
+        AND (${channelIdFilter}::int IS NULL OR c.id = ${channelIdFilter})
         AND (c.chat_id ~ '^@[A-Za-z0-9_]{5,32}$' OR c.chat_id ~ '^-100[0-9]{6,}$')
     `
     const nextPostAt = computeNextSlot(schedules as never)
@@ -96,6 +109,7 @@ export async function GET(request: Request) {
       FROM channel_metrics m
       JOIN channels c ON c.id = m.channel_id
       WHERE c.user_id = ${user.userId}
+        AND (${channelIdFilter}::int IS NULL OR c.id = ${channelIdFilter})
         AND (c.chat_id ~ '^@[A-Za-z0-9_]{5,32}$' OR c.chat_id ~ '^-100[0-9]{6,}$')
         AND m.captured_at > now() - interval '7 days'
       ORDER BY m.captured_at

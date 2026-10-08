@@ -10,6 +10,11 @@ export async function GET(request: Request) {
   try {
     const user = await getAuthUser(request)
     if (!user) return unauthorized()
+
+    const url = new URL(request.url)
+    const paramChannelId = url.searchParams.get('channelId')
+    const channelIdFilter = paramChannelId && !Number.isNaN(Number(paramChannelId)) ? Number(paramChannelId) : null
+
     const posts = await sql`
       SELECT p.id, p.channel_id, p.topic, p.mode, p.text, p.image_url, p.image_source,
              p.media_type, p.status, p.scheduled_at, p.created_at, p.error, p.error_code,
@@ -17,6 +22,7 @@ export async function GET(request: Request) {
       FROM posts p
       JOIN channels c ON c.id = p.channel_id
       WHERE c.user_id = ${user.userId}
+        AND (${channelIdFilter}::int IS NULL OR c.id = ${channelIdFilter})
         AND c.is_active AND c.is_verified AND c.bot_can_post
         AND (c.chat_id ~ '^@[A-Za-z0-9_]{5,32}$' OR c.chat_id ~ '^-100[0-9]{6,}$')
         AND p.status IN ('queued', 'approved', 'failed')
@@ -26,7 +32,7 @@ export async function GET(request: Request) {
           OR (p.status = 'failed' AND p.created_at > now() - interval '7 days')
         )
       ORDER BY p.scheduled_at NULLS LAST, p.created_at DESC
-      LIMIT 50
+      LIMIT 100
     `
     return NextResponse.json({ posts })
   } catch (error) {

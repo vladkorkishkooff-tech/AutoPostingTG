@@ -23,7 +23,7 @@ export async function GET(request: Request) {
   try {
     const user = await getAuthUser(request)
     if (!user) return unauthorized()
-    const [channels, providers, online] = await Promise.all([
+    const [channels, providers, online, userRows] = await Promise.all([
       sql`
         SELECT id, chat_id, title, topic, mode, is_active, is_verified, bot_can_post,
                verification_error
@@ -57,9 +57,21 @@ export async function GET(request: Request) {
         ORDER BY priority, n.provider
       `,
       bridgeOnline(),
+      sql`SELECT selected_channel_id FROM users WHERE id = ${user.userId}`,
     ])
+
+    const selectedId = userRows[0]?.selected_channel_id ? Number(userRows[0].selected_channel_id) : null
+    let activeChannel = channels.find((c) => c.id === selectedId)
+    if (!activeChannel) {
+      activeChannel = channels.find((c) => c.is_active && c.is_verified && c.bot_can_post)
+        || channels.find((c) => c.is_active)
+        || channels[0]
+        || null
+    }
+
     return NextResponse.json({
-      channel: channels[0] ?? null,
+      channel: activeChannel,
+      selectedChannelId: activeChannel?.id ?? null,
       channels,
       providers,
       runtime: {

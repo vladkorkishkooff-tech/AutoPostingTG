@@ -66,6 +66,7 @@
 
 ## Change Log
 
+- 2026-10-08: Added migration 008 (`selected_channel_id` on `users`), unified multi-channel control center across Telegram Bot (`/channels`, `[📡 Каналы]`, `build_channel_control_panel`) and Next.js Mini App (`ChannelSwitcher` on Dashboard, `POST /api/channels/select`, scoped `/api/stats`, channel tabs in Queue, and active channel selectors in Generator and Schedule).
 - 2026-10-05: Added self-keepalive background worker in main.py and GitHub Actions keepalive.yml to prevent Render free-tier idle spin-down; added 45-minute catch-up grace window in scheduler.py _due_now so missed slots run reliably after restarts.
 - 2026-07-15: Batch generation can now search and select a separate stock image
   for every draft and persist the chosen media into the review queue; documented

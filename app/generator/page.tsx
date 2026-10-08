@@ -104,11 +104,12 @@ function GeneratorContent() {
   const [historyOpen, setHistoryOpen] = useState(false)
   const { data: historyData } = useSWR<{ history: HistoryItem[] }>(historyOpen ? '/api/history' : null, swrFetcher)
   const { data: channelsData } = useSWR<{ channels: Channel[] }>('/api/channels', swrFetcher)
+  const { data: config } = useSWR<{ channel: Channel | null; selectedChannelId?: number | null }>('/api/config', swrFetcher)
   const activeChannels = (channelsData?.channels ?? []).filter(
     (channel) => channel.is_active && isVerifiedChannel(channel),
   )
   const [channelId, setChannelId] = useState<number | null>(null)
-  const selectedChannelId = channelId ?? (activeChannels[0] ? Number(activeChannels[0].id) : null)
+  const selectedChannelId = channelId ?? config?.selectedChannelId ?? config?.channel?.id ?? (activeChannels[0] ? Number(activeChannels[0].id) : null)
   const operationRef = useRef(false)
 
   function clearPhotoSelection() {

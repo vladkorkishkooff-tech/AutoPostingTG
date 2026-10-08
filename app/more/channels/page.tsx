@@ -127,7 +127,17 @@ function TopicPool({ channelId }: { channelId: number }) {
   )
 }
 
-function ChannelCard({ channel, onChanged }: { channel: Channel; onChanged: () => void }) {
+function ChannelCard({
+  channel,
+  isSelected,
+  onSelect,
+  onChanged,
+}: {
+  channel: Channel
+  isSelected: boolean
+  onSelect: () => void
+  onChanged: () => void
+}) {
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState(channel.title ?? '')
   const [topic, setTopic] = useState(channel.topic)
@@ -175,22 +185,35 @@ function ChannelCard({ channel, onChanged }: { channel: Channel; onChanged: () =
   }
 
   return (
-    <div className="glass flex flex-col">
+    <div className={`glass flex flex-col ${isSelected ? 'border-primary/40 ring-1 ring-primary/30' : ''}`}>
       <div className="flex items-center gap-3 p-4">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+        <div
+          className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${
+            isSelected ? 'bg-primary/20 text-primary border border-primary/40' : 'bg-muted text-muted-foreground'
+          }`}
+        >
           <Radio size={17} aria-hidden="true" />
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="truncate text-[13px] font-medium text-foreground">
-            {channel.telegram_title || channel.title || channel.chat_id}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="truncate text-[13px] font-medium text-foreground">
+              {channel.telegram_title || channel.title || channel.chat_id}
+            </span>
+            {isSelected ? <StatusPill tone="green">активен</StatusPill> : null}
+          </div>
           <span className="truncate text-[11px] text-muted-foreground">
             {channel.chat_id} · {channel.published_posts} постов · {channel.active_schedules} слот(ов)
           </span>
         </div>
-        <StatusPill tone={channel.is_verified && channel.bot_can_post ? 'green' : 'blue'}>
-          {channel.is_verified && channel.bot_can_post ? 'проверен' : 'не проверен'}
-        </StatusPill>
+        {!isSelected && channel.is_active && channel.is_verified && channel.bot_can_post ? (
+          <button
+            type="button"
+            onClick={onSelect}
+            className="btn-outline-green pressable px-2.5 py-1 text-[11px] shrink-0"
+          >
+            Выбрать
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={() => {
@@ -211,6 +234,26 @@ function ChannelCard({ channel, onChanged }: { channel: Channel; onChanged: () =
 
       {open ? (
         <div className="flex flex-col gap-4 border-t border-border p-4">
+          <div className="flex items-center justify-between rounded-lg border border-border bg-white/[0.03] p-3">
+            <div className="flex flex-col">
+              <span className="text-[13px] font-medium text-foreground">Основной канал управления</span>
+              <span className="text-[11px] text-muted-foreground">Активен для дашборда, бота и генератора</span>
+            </div>
+            {isSelected ? (
+              <span className="text-[12px] font-semibold text-[rgb(76,183,130)] flex items-center gap-1">
+                ★ Выбран
+              </span>
+            ) : (
+              <button
+                type="button"
+                disabled={saving || !channel.is_active || !channel.is_verified || !channel.bot_can_post}
+                onClick={onSelect}
+                className="btn-green pressable px-3 py-1.5 text-[12px] disabled:opacity-40"
+              >
+                Сделать основным
+              </button>
+            )}
+          </div>
           <div className="rounded-lg border border-border bg-white/[0.03] p-3 text-[12px] text-muted-foreground">
             <p>Telegram ID: {channel.telegram_chat_id ?? 'не определён'}</p>
             <p>Право публикации: {channel.bot_can_post ? 'есть' : 'нет'}</p>
@@ -327,6 +370,7 @@ function channelErrorMessage(code: string): string {
 
 export default function ChannelsPage() {
   const { data, mutate, isLoading } = useSWR<{ channels: Channel[] }>('/api/channels', fetcher)
+  const { data: config, mutate: mutateConfig } = useSWR<{ channel: Channel | null; selectedChannelId?: number | null }>('/api/config', fetcher)
   const [showForm, setShowForm] = useState(false)
   const [chatId, setChatId] = useState('')
   const [title, setTitle] = useState('')
@@ -335,6 +379,26 @@ export default function ChannelsPage() {
   const [error, setError] = useState<string | null>(null)
 
   const channels = data?.channels ?? []
+  const selectedChannelId = config?.selectedChannelId ?? config?.channel?.id ?? null
+
+  async function selectChannel(id: number) {
+    haptic('medium')
+    try {
+      const res = await apiFetch('/api/channels/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId: id }),
+      })
+      if (res.ok) {
+        haptic('success')
+        await Promise.all([mutateConfig(), mutate()])
+      } else {
+        haptic('error')
+      }
+    } catch {
+      haptic('error')
+    }
+  }
 
   async function addChannel() {
     haptic('medium')
@@ -357,7 +421,7 @@ export default function ChannelsPage() {
       setTitle('')
       setTopic('')
       setShowForm(false)
-      mutate()
+      await Promise.all([mutateConfig(), mutate()])
     } finally {
       setSaving(false)
     }
@@ -445,7 +509,16 @@ export default function ChannelsPage() {
         ) : (
           <div className="flex flex-col gap-3">
             {channels.map((c) => (
-              <ChannelCard key={c.id} channel={c} onChanged={() => mutate()} />
+              <ChannelCard
+                key={c.id}
+                channel={c}
+                isSelected={selectedChannelId === c.id}
+                onSelect={() => selectChannel(c.id)}
+                onChanged={() => {
+                  mutateConfig()
+                  mutate()
+                }}
+              />
             ))}
           </div>
         )}
