@@ -178,7 +178,6 @@ def _fallback_queries(topic: str) -> list[str]:
     image is safer than a visually unrelated stock photo.
     """
     mapping = {
-        "наука": ["science research", "laboratory science", "scientific experiment"],
         "космос": ["space astronomy", "galaxy", "nebula", "planet"],
         "физика": ["physics experiment", "particle physics", "quantum physics"],
         "химия": ["chemistry laboratory", "molecules", "chemical experiment"],
@@ -228,7 +227,7 @@ def _relevance_score(title: str, query: str) -> int:
     """Score metadata overlap so a microscope cannot satisfy a Titan query."""
     query_tokens = _query_tokens(query)
     if not query_tokens:
-        return 1
+        return 0
     title_tokens = _text_tokens(title)
     return len(query_tokens & title_tokens)
 
@@ -260,7 +259,7 @@ def _select_relevant_candidate(
 
     ranked = sorted(candidates, key=rank, reverse=True)
     query_terms = _query_tokens(query)
-    minimum_overlap = 2 if len(query_terms) >= 3 else 1
+    minimum_overlap = 2 if len(query_terms) >= 2 else 1
     for candidate in ranked:
         searchable = candidate.search_text or candidate.title
         title_terms = _text_tokens(candidate.title)
@@ -613,7 +612,10 @@ async def get_science_photo(
             plan_queries = [anchor_query, *plan.queries]
             _AI_QUERIES[key] = list(dict.fromkeys(plan_queries))
         else:
-            _AI_QUERIES[key] = _fallback_queries(topic)
+            # A scheduled channel topic such as "наука" is too broad to
+            # describe the finished post. If visual planning fails, omit the
+            # photo instead of falling back to a generic channel image.
+            _AI_QUERIES[key] = _fallback_queries(topic) if not context else []
         _AI_REQUIRED_TERMS[key] = plan.required_terms if plan else ()
         _AI_SUBJECTS[key] = plan.subject if plan else ""
         _AI_FOCUS[key] = plan.focus if plan else ""
@@ -627,7 +629,7 @@ async def get_science_photo(
                 plan_queries = [anchor_query, *plan.queries]
                 _AI_QUERIES[key] = list(dict.fromkeys(plan_queries))
             else:
-                _AI_QUERIES[key] = _fallback_queries(topic)
+                _AI_QUERIES[key] = _fallback_queries(topic) if not context else []
             _AI_REQUIRED_TERMS[key] = plan.required_terms if plan else ()
             _AI_SUBJECTS[key] = plan.subject if plan else ""
             _AI_FOCUS[key] = plan.focus if plan else ""

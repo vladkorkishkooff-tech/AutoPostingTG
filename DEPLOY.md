@@ -7,6 +7,10 @@
 
 Обе части используют одну базу Neon.
 
+Текущий production health endpoint бота — `https://autopostingtg.onrender.com/health`.
+Параметры Git-репозитория, ветки и auto-deploy для Render проверяются в Render Dashboard;
+описанные ниже Railway-команды относятся только к сервису, подключённому в Railway.
+
 ## 1. Переменные окружения
 
 ### Mini App (Vercel)

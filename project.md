@@ -4,7 +4,7 @@
 
 - Name: AutoPostingTG
 - Status: sale-ready pending owner Telegram acceptance test and credential rotation
-- Goal: publish reviewed science-fact posts to authorised Telegram channels on a reliable schedule.
+- Goal: publish science facts and practical AI-tool posts to authorised Telegram channels on a reliable schedule.
 - Users: a Telegram channel owner using the bot and Mini App.
 - Non-goals: public unauthenticated content management or generic social-media scheduling.
 
@@ -14,7 +14,7 @@
 - Bot: Python 3.12, aiogram, aiohttp; `main.py` starts Telegram polling, scheduler, and optional bridge.
 - Storage: Neon/Postgres through `@neondatabase/serverless` and asyncpg.
 - Security: Telegram `initData` HMAC validation, user-scoped SQL, AES-256-GCM API-key encryption, shared bridge secret.
-- Deployment: Vercel for the Mini App and Railway/Docker for the long-running bot and HTTPS bridge.
+- Deployment: Vercel for the Mini App; the bot health endpoint currently runs on Render. Railway and Docker configurations remain available for other deployments.
 
 ## Main Workflows
 
@@ -66,6 +66,8 @@
 
 ## Change Log
 
+- 2026-10-17: Added channel-specific editorial profiles. Science stock images are rechecked against the finished post, with no generic science fallback; the AI-tools channel is restricted to practical developer tools with an official source link.
+- 2026-10-17: Render's `RENDER_GIT_COMMIT` is included in the public health response so deployed bot revisions can be verified.
 - 2026-10-08: Added migration 008 (`selected_channel_id` on `users`), unified multi-channel control center across Telegram Bot (`/channels`, `[📡 Каналы]`, `build_channel_control_panel`) and Next.js Mini App (`ChannelSwitcher` on Dashboard, `POST /api/channels/select`, scoped `/api/stats`, channel tabs in Queue, and active channel selectors in Generator and Schedule).
 - 2026-10-05: Added self-keepalive background worker in main.py and GitHub Actions keepalive.yml to prevent Render free-tier idle spin-down; added 45-minute catch-up grace window in scheduler.py _due_now so missed slots run reliably after restarts.
 - 2026-07-15: Batch generation can now search and select a separate stock image

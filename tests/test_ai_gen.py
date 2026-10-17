@@ -7,6 +7,7 @@ from ai_gen import (
     _is_usable_post,
     _system_prompt,
     _trim_for_telegram,
+    channel_style_profile,
     generate_post,
     is_mode_token,
     normalize_mode,
@@ -72,6 +73,12 @@ def test_system_prompt_uses_trusted_style_profile():
     assert "500-1200" in prompt
     assert "Пример авторской подачи" in prompt
     assert "краткие абзацы" in prompt
+
+
+def test_channel_style_profile_resolves_underscore_username():
+    profile = channel_style_profile({"chat_id": "@AI_toolsSsS"}, load_config())
+    assert profile is not None
+    assert profile["channel_kind"] == "ai_tools"
 
 
 def test_distinct_post_rejects_reworded_duplicate():

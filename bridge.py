@@ -185,7 +185,12 @@ async def start_bridge(
         return web.json_response({"dataUrl": data_url, "filename": filename})
 
     async def handle_health(_: web.Request) -> web.Response:
-        commit = (os.getenv("RAILWAY_GIT_COMMIT_SHA") or os.getenv("RELEASE_SHA") or "").strip()
+        commit = (
+            os.getenv("RENDER_GIT_COMMIT")
+            or os.getenv("RAILWAY_GIT_COMMIT_SHA")
+            or os.getenv("RELEASE_SHA")
+            or ""
+        ).strip()
         return web.json_response(
             {
                 "ok": True,

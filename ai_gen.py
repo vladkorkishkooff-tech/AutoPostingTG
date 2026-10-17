@@ -51,6 +51,100 @@ MODE_DESCRIPTIONS = {
 }
 
 
+AI_TOOLS_CATALOG = (
+    {
+        "name": "Microsoft MarkItDown",
+        "url": "https://github.com/microsoft/markitdown",
+        "summary": "Converts common document formats such as PDF, DOCX, XLSX, and PPTX to Markdown for LLM workflows.",
+        "start": "pip install markitdown",
+    },
+    {
+        "name": "LiteLLM",
+        "url": "https://github.com/BerriAI/litellm",
+        "summary": "Provides a shared interface for calling language-model providers and routing requests.",
+        "start": "pip install litellm",
+    },
+    {
+        "name": "whisper.cpp",
+        "url": "https://github.com/ggml-org/whisper.cpp",
+        "summary": "A C/C++ implementation for running Whisper speech recognition models.",
+        "start": "Build and model setup are documented in the repository README.",
+    },
+    {
+        "name": "Instructor",
+        "url": "https://github.com/567-labs/instructor",
+        "summary": "Helps produce structured language-model responses using Pydantic models and validation.",
+        "start": "pip install instructor",
+    },
+    {
+        "name": "SQLGlot",
+        "url": "https://github.com/tobymao/sqlglot",
+        "summary": "Parses and transpiles SQL across dialects, useful for query tooling and migration workflows.",
+        "start": "pip install sqlglot",
+    },
+    {
+        "name": "uv",
+        "url": "https://github.com/astral-sh/uv",
+        "summary": "A Python project and package manager with dependency and environment workflows.",
+        "start": "pip install uv",
+    },
+    {
+        "name": "FastEmbed",
+        "url": "https://github.com/qdrant/fastembed",
+        "summary": "Generates text embeddings through ONNX Runtime for search and retrieval pipelines.",
+        "start": "pip install fastembed",
+    },
+    {
+        "name": "llama.cpp",
+        "url": "https://github.com/ggml-org/llama.cpp",
+        "summary": "Runs quantized language models locally using the GGUF model format.",
+        "start": "Build and model setup are documented in the repository README.",
+    },
+)
+
+AI_TOOLS_PROFILE = {
+    "channel_kind": "ai_tools",
+    "content_brief": (
+        "Пиши для разработчиков и инженеров-практиков о конкретных инструментах для LLM, "
+        "RAG, данных, локального инференса и автоматизации. Пост должен объяснять реальную "
+        "инженерную задачу, один проверяемый механизм инструмента и практический старт. "
+        "Выбирай только инструмент из каталога ниже и используй только факты из его описания. "
+        "Не пиши общие факты о нейросетях, статистику потребления энергии/воды, байки об истории "
+        "ИИ, анонсы без источника, сравнения с платными продуктами, цены, обещания превосходства, "
+        "«100% результат», обход ограничений, джейлбрейки или обход AI-детекторов. Не выдумывай "
+        "версии, бенчмарки, лицензии и команды. Если в каталоге недостаточно данных, выбери другой инструмент."
+    ),
+    "elements": [
+        "Один инженерный инструмент — одна конкретная задача.",
+        "Объяснить проблему, полезную особенность и практический старт без рекламных обещаний.",
+        "В конце ровно одна официальная ссылка из каталога; никаких других ссылок.",
+        "Без кликбейта, псевдостатистики, неподтверждённых сравнений и тем про обход ограничений.",
+    ],
+    "sample": (
+        "🛠️ Microsoft MarkItDown — утилита, которая превращает PDF, Word и таблицы в Markdown для LLM.\n\n"
+        "Она решает практическую проблему: вместо отдельного парсера для каждого формата можно "
+        "получить единый текстовый вход для поиска или RAG.\n\n"
+        "Старт: pip install markitdown\n"
+        "Источник: https://github.com/microsoft/markitdown"
+    ),
+    "tool_catalog": AI_TOOLS_CATALOG,
+}
+
+
+SCIENCE_PROFILE = {
+    "channel_kind": "science_facts",
+    "content_brief": (
+        "Короткий научно-популярный факт на русском языке: одна ясная мысль, точная деталь и "
+        "простое объяснение. Аналогию с человеком используй только там, где она естественна."
+    ),
+    "elements": [
+        "90–180 знаков, одно-два коротких предложения, один абзац.",
+        "Первым символом поставь один релевантный эмодзи.",
+        "Без клише, ссылок, финальных вопросов и призывов к обсуждению.",
+    ],
+}
+
+
 @dataclass(frozen=True)
 class LLMProvider:
     name: str
@@ -149,14 +243,21 @@ def _trim_for_telegram(text: str, limit: int = 430, *, preserve_paragraphs: bool
     return text[: limit - len(suffix)].rstrip() + suffix
 
 
-def _is_usable_post(text: str, mode: str = "normal") -> bool:
+def _is_usable_post(
+    text: str,
+    mode: str = "normal",
+    style_profile: dict | None = None,
+) -> bool:
     """Reject malformed, truncated, wrong-language, and wrong-mode drafts."""
     normalized = text.strip()
+    channel_kind = (style_profile or {}).get("channel_kind")
     bounds = {
         "short": (60, 220),
         "long": (350, 1800),
     }
     minimum, maximum = bounds.get(mode, (60, 430))
+    if channel_kind == "ai_tools":
+        minimum, maximum = (450, 1200) if mode == "long" else (120, 1200)
     if not minimum <= len(normalized) <= maximum:
         return False
     lower = normalized.lower()
@@ -164,7 +265,24 @@ def _is_usable_post(text: str, mode: str = "normal") -> bool:
         return False
     if normalized.endswith(("...", "…", "?")):
         return False
-    if "```" in normalized or re.search(r"https?://|www\.", lower):
+    if "```" in normalized or "www." in lower:
+        return False
+    urls = [url.rstrip(".,;!?)") for url in re.findall(r"https?://[^\s<>]+", normalized, flags=re.IGNORECASE)]
+    if channel_kind == "ai_tools":
+        catalog = (style_profile or {}).get("tool_catalog") or []
+        allowed = {
+            str(item.get("url") or "").rstrip("/").casefold(): str(item.get("name") or "").casefold()
+            for item in catalog
+            if isinstance(item, dict) and item.get("url") and item.get("name")
+        }
+        if len(urls) != 1:
+            return False
+        tool_name = allowed.get(urls[0].rstrip("/").casefold())
+        if not tool_name or tool_name not in lower:
+            return False
+        if re.search(r"</?[a-z][^>]*>", normalized, flags=re.IGNORECASE):
+            return False
+    elif urls:
         return False
     if normalized[0].isalnum():
         return False
@@ -214,18 +332,61 @@ def is_mode_token(value: str | None) -> bool:
     return bool(value and value.strip().lower() in MODE_ALIASES)
 
 
+def channel_style_profile(
+    channel: dict | None,
+    config: AppConfig | None = None,
+) -> dict | None:
+    """Resolve built-in editorial rules for the known public channels."""
+    if not isinstance(channel, dict):
+        return None
+
+    identifiers = {
+        re.sub(
+            r"[^a-z0-9а-яё]+",
+            "",
+            str(channel.get(key) or "").strip().casefold().lstrip("@"),
+        )
+        for key in ("telegram_username", "chat_id", "title", "telegram_title")
+    }
+    identifiers.discard("")
+    custom = channel.get("style_profile") if isinstance(channel.get("style_profile"), dict) else {}
+
+    if any(identifier.startswith("aitools") for identifier in identifiers) or "aiинструменты" in identifiers:
+        profile = dict(AI_TOOLS_PROFILE)
+    elif "nauchpuk" in identifiers or "научныефакты" in identifiers:
+        profile = dict(SCIENCE_PROFILE)
+        config = config or load_config()
+        profile["sample"] = config.post_style_example
+    else:
+        return custom or None
+
+    # Keep user-authored tone controls while editorial rules and source links
+    # remain code-owned and cannot be replaced through a style sample.
+    if custom.get("sample"):
+        profile["sample"] = str(custom["sample"])[:1500]
+    custom_elements = custom.get("elements")
+    if isinstance(custom_elements, list):
+        profile["elements"] = [
+            *profile.get("elements", []),
+            *(str(item).strip()[:80] for item in custom_elements if str(item).strip()),
+        ][:12]
+    return profile
+
+
 def _style_profile_block(style_profile: dict | None) -> str:
     """Render a trusted, server-loaded channel profile into bounded prompt text."""
     if not isinstance(style_profile, dict):
         return ""
     sample = str(style_profile.get("sample") or "").strip()[:1500]
+    content_brief = str(style_profile.get("content_brief") or "").strip()[:2400]
     raw_elements = style_profile.get("elements")
     elements = (
         [str(item).strip()[:80] for item in raw_elements[:12] if str(item).strip()]
         if isinstance(raw_elements, list)
         else []
     )
-    if not sample and not elements:
+    raw_catalog = style_profile.get("tool_catalog")
+    if not sample and not elements and not content_brief and not raw_catalog:
         return ""
     parts = [
         " Индивидуальный стиль этого канала загружен сервером. "
@@ -235,6 +396,24 @@ def _style_profile_block(style_profile: dict | None) -> str:
         parts.append(f" Элементы стиля: {', '.join(elements)}.")
     if sample:
         parts.append(f" Пример стиля: <style-example>{sample}</style-example>.")
+    if content_brief:
+        parts.append(f" Редакционный профиль: <channel-profile>{content_brief}</channel-profile>.")
+    if isinstance(raw_catalog, (list, tuple)):
+        catalog_lines = []
+        for item in raw_catalog[:12]:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()[:80]
+            url = str(item.get("url") or "").strip()[:200]
+            summary = str(item.get("summary") or "").strip()[:240]
+            start = str(item.get("start") or "").strip()[:160]
+            if name and url and summary:
+                catalog_lines.append(f"- {name} | {summary} | старт: {start} | источник: {url}")
+        if catalog_lines:
+            parts.append(
+                " Разрешенный каталог инструментов; опирайся только на него:\n"
+                + "\n".join(catalog_lines)
+            )
     return "".join(parts)
 
 
@@ -244,14 +423,16 @@ def _system_prompt(
     avoid_texts: list[str] | None = None,
     style_profile: dict | None = None,
 ) -> str:
+    channel_kind = (style_profile or {}).get("channel_kind")
     mode_description = MODE_DESCRIPTIONS.get(mode, MODE_DESCRIPTIONS["normal"])
+    style_example = config.post_style_example
     length_instruction = {
-        "short": "Длина 70-160 знаков, ровно один абзац.",
+        "short": "Длина 70-130 знаков, ровно одно короткое предложение.",
         "long": (
             "Длина 500-1200 знаков, 2-4 коротких абзаца. "
             "Первый абзац — сам факт, затем понятное объяснение без воды."
         ),
-    }.get(mode, "Длина 90-260 знаков, один абзац.")
+    }.get(mode, "Длина строго 90-180 знаков, 1-2 коротких предложения, один абзац.")
     avoid_block = ""
     if avoid_texts:
         recent = "\n".join(f"- {text[:350]}" for text in avoid_texts[:8])
@@ -259,17 +440,44 @@ def _system_prompt(
             " Создай другой факт, а не пересказ. Не повторяй эти черновики "
             f"по смыслу, объекту, числовой детали или формулировке:\n{recent}"
         )
-    return (
-        "Ты пишешь посты для Telegram-канала о науке на русском языке. "
-        "Нужен формат научно-популярного Telegram-поста. "
-        f"{length_instruction} "
-        "Без воды, без объяснения задачи, без markdown, без ссылок, без вопроса в конце, без призыва к обсуждению. "
-        "Факт должен быть конкретным: объект, свойство, причина или числовая деталь. "
-        "Первым символом поставь уместный эмодзи. "
-        f"Режим: {mode_description}. "
-        f"Эталон стиля: {config.post_style_example}"
-        f"{_style_profile_block(style_profile)}"
-        f"{avoid_block}"
+    if channel_kind == "ai_tools":
+        mode_description = {
+            "short": "краткая, но практическая заметка об одном инженерном AI-инструменте",
+            "long": "прикладной технический разбор одного инструмента для разработчиков",
+            "normal": "прикладная заметка об одном инструменте для разработчиков",
+            "funny": "спокойный инженерный разбор без рекламного тона",
+            "wow": "практический разбор конкретного технического решения",
+            "strict": "сухой технический разбор одного инструмента",
+        }.get(mode, "прикладная заметка об одном инструменте для разработчиков")
+        base_prompt = (
+            "Ты редактор русскоязычного Telegram-канала «AI-инструменты» для разработчиков. "
+            "Пиши о конкретных инструментах, которые решают инженерную задачу. "
+            "Не подменяй обзор инструмента случайным фактом о нейросетях. "
+            "Не добавляй неподтверждённые числа, даты, цены, оценки качества и сравнения. "
+            "Включи назначение, конкретную пользу и практический старт из каталога. "
+            "Используй ровно одну ссылку из каталога и укажи её в конце. "
+            "Текст должен быть полезным разработчику без кликбейта и рекламных обещаний. "
+        )
+        style_example = ""
+    else:
+        base_prompt = (
+            "Ты пишешь ультра-короткие посты для Telegram-канала о науке на русском языке. "
+            "Нужен формат предельно лаконичного научно-популярного Telegram-факта. "
+            "Излагай факт просто, живо и без воды. Никаких сложных терминов и затянутых объяснений. "
+            "Если факт связан с силой, скоростью, размером или биологией — добавь короткое сравнение с человеком или понятным бытовым масштабом (в 3-6 слов). "
+            "ВАЖНО: сравнение с человеком делай ТОЛЬКО там, где оно естественно и уместно; если факт чисто космический или физический — не вымучивай сравнение. "
+            "Без markdown, без ссылок, без вопроса в конце, без призыва к действию. "
+            "Первым символом поставь один уместный эмодзи. "
+        )
+    return "".join(
+        [
+            base_prompt,
+            f"{length_instruction} ",
+            f"Режим: {mode_description}. ",
+            f"Эталон стиля: {style_example}" if style_example else "",
+            _style_profile_block(style_profile),
+            avoid_block,
+        ]
     )
 
 
@@ -355,7 +563,7 @@ async def _call_openai_compatible(
                     limit=1800 if mode == "long" else 430,
                     preserve_paragraphs=mode == "long",
                 )
-                if not _is_usable_post(post, mode):
+                if not _is_usable_post(post, mode, style_profile):
                     logger.warning("LLM provider %s returned unusable post content", provider.name)
                     return None
 
@@ -424,7 +632,7 @@ async def _call_anthropic(
                     limit=1800 if mode == "long" else 430,
                     preserve_paragraphs=mode == "long",
                 )
-                if not _is_usable_post(post, mode):
+                if not _is_usable_post(post, mode, style_profile):
                     logger.warning("Anthropic model %s returned unusable content", model)
                     return None
                 logger.info("Generated post via Anthropic model %s", model)
@@ -501,7 +709,7 @@ async def _call_v0_platform(
                     limit=1800 if mode == "long" else 430,
                     preserve_paragraphs=mode == "long",
                 )
-                if not _is_usable_post(post, mode):
+                if not _is_usable_post(post, mode, style_profile):
                     logger.warning("v0 model %s returned unusable content", model)
                     return None
                 logger.info("Generated v0 test post via model %s", model)

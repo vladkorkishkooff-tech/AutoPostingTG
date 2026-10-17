@@ -25,7 +25,14 @@ from aiogram.types import (
 from aiogram.types import BufferedInputFile
 
 import db
-from ai_gen import available_modes, enabled_provider_names, generate_post, is_mode_token, normalize_mode
+from ai_gen import (
+    available_modes,
+    channel_style_profile,
+    enabled_provider_names,
+    generate_post,
+    is_mode_token,
+    normalize_mode,
+)
 from ai_image import ai_image_available, classify_ai_image_errors, generate_ai_image
 from bridge import start_bridge
 from config import AppConfig, load_config
@@ -360,6 +367,16 @@ async def _resolve_media(
     return None, None, None
 
 
+def _is_stock_image_source(source: str | None) -> bool:
+    if not source:
+        return False
+    value = source.casefold()
+    return any(
+        provider in value
+        for provider in ("wikimedia commons", "nasa", "pexels", "pixabay", "unsplash", "openverse")
+    )
+
+
 async def publish_post(
     topic: str | None = None,
     *,
@@ -479,7 +496,7 @@ async def publish_post(
             avoid_texts,
             user_providers=user_providers,
             on_attempt=_log_attempt if use_db else None,
-            style_profile=channel_context.get("style_profile") if use_db else None,
+            style_profile=channel_style_profile(channel_context, config),
         )
         if candidate is None:
             break
@@ -907,7 +924,7 @@ async def prepare_queued_post(item: dict) -> None:
             avoid_texts,
             user_providers=user_providers,
             on_attempt=_log_prepare_attempt,
-            style_profile=(channel_settings or {}).get("style_profile"),
+            style_profile=channel_style_profile(channel_settings, config),
         )
         if candidate is None:
             break
@@ -988,6 +1005,7 @@ async def publish_prepared(post: dict, item: dict) -> PublishResult:
         can_post=True,
     )
     channel_context = (await db.get_channel_settings(pool, item["channel_id"])) or {}
+    channel_profile = channel_style_profile(channel_context, config)
     try:
         user_providers = await fetch_user_providers(pool, int(item["user_id"]))
     except Exception:
@@ -1047,11 +1065,31 @@ async def publish_prepared(post: dict, item: dict) -> PublishResult:
                         if payload:
                             image_url, image_source = image.url, image.source
             elif image_url:
-                from image_fetcher import ImageResult
+                if channel_profile and channel_profile.get("channel_kind") == "science_facts" and _is_stock_image_source(image_source):
+                    # Older queued science posts can contain broad fallback
+                    # photos. Re-run the exact visual search at publication;
+                    # if no match survives, publish the text without a photo.
+                    excluded = await db.recent_image_urls(
+                        pool, item["channel_id"], topic=post["topic"], limit=config.recent_image_limit
+                    )
+                    image = await get_science_photo(
+                        post["topic"], config, excluded_urls=excluded, context=text,
+                        user_providers=user_providers,
+                    )
+                    if image:
+                        payload = await download_image(image, config)
+                        if payload:
+                            image_url, image_source = image.url, image.source
+                        else:
+                            image_url, image_source = None, None
+                    else:
+                        image_url, image_source = None, None
+                else:
+                    from image_fetcher import ImageResult
 
-                payload = await download_image(
-                    ImageResult(url=image_url, source=image_source or "custom"), config
-                )
+                    payload = await download_image(
+                        ImageResult(url=image_url, source=image_source or "custom"), config
+                    )
 
             sent = None
             photo_sent = False
@@ -1679,7 +1717,7 @@ async def run_bot():
                         limit=config.recent_post_limit,
                     )
                     settings = await db.get_channel_settings(preview_pool, preview_channel_id)
-                    style_profile = (settings or {}).get("style_profile")
+                    style_profile = channel_style_profile(settings, config)
 
             async def _log_preview_attempt(
                 provider_name: str,

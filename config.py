@@ -123,7 +123,7 @@ def load_config() -> AppConfig:
         default_mode=_getenv("DEFAULT_MODE", "normal").lower(),
         post_style_example=_getenv(
             "POST_STYLE_EXAMPLE",
-            "🤬 В японском языке нет ругательств сильнее, чем «дурак» и «идиот»",
+            "🪵 Дятел долбит дерево с перегрузкой в 1200 g. Человек теряет сознание уже при 9 g, но мозг птицы бережёт губчатый череп.",
         ),
         post_interval_hours=_get_int("POST_INTERVAL_HOURS", 24),
         post_on_startup=_getenv("POST_ON_STARTUP", "false").lower() in {"1", "true", "yes", "on"},
