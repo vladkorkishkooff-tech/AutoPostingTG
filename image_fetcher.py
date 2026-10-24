@@ -285,7 +285,7 @@ def _is_astronomy_query(query: str) -> bool:
 def _provider_names_for_query(query: str) -> list[str]:
     if _is_astronomy_query(query):
         return ["NASA", "Wikimedia Commons", "Openverse", "Pexels", "Pixabay", "Unsplash"]
-    return ["Pexels", "Pixabay", "Openverse", "Wikimedia Commons", "Unsplash", "NASA"]
+    return ["Wikimedia Commons", "Openverse", "Pexels", "Pixabay", "NASA", "Unsplash"]
 
 
 async def _fetch_json(
