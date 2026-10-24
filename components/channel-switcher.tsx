@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import useSWR, { useSWRConfig } from 'swr'
 import Link from 'next/link'
-import { Radio, ChevronDown, Check, Plus, Settings2, X, Sparkles } from 'lucide-react'
+import { Radio, ChevronDown, Check, Plus, Settings2, X } from 'lucide-react'
 import { swrFetcher as fetcher, apiFetch, haptic } from '@/lib/client'
 import { StatusPill } from '@/components/ui'
 
@@ -34,6 +35,28 @@ export function ChannelSwitcher({ className = '' }: { className?: string }) {
 
   const [isOpen, setIsOpen] = useState(false)
   const [switchingId, setSwitchingId] = useState<number | null>(null)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  // Lock body scroll and handle Escape key when modal is open
+  useEffect(() => {
+    if (!isOpen) return
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsOpen(false)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.body.style.overflow = prevOverflow
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isOpen])
 
   const activeChannel = config?.channel ?? null
   const allChannels = channelsData?.channels ?? config?.channels ?? []
@@ -141,115 +164,129 @@ export function ChannelSwitcher({ className = '' }: { className?: string }) {
         </div>
       </div>
 
-      {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in duration-200">
-          <div
-            className="w-full max-w-md max-h-[85vh] flex flex-col rounded-t-2xl sm:rounded-2xl border border-white/15 bg-[#12161f] shadow-2xl overflow-hidden"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="channel-dialog-title"
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-border/80 px-5 py-4">
-              <div className="flex items-center gap-2">
-                <Radio size={18} className="text-primary" aria-hidden="true" />
-                <h3 id="channel-dialog-title" className="text-[16px] font-semibold text-foreground">
-                  Центр управления каналами
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsOpen(false)}
-                className="pressable rounded-full p-1.5 text-muted-foreground hover:bg-white/10 transition-colors"
-                aria-label="Закрыть"
-              >
-                <X size={17} aria-hidden="true" />
-              </button>
-            </div>
-
-            {/* List */}
-            <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2">
-              <p className="px-1 text-[12px] text-muted-foreground">
-                Выберите активный канал для дашборда, генератора постов и очереди публикаций:
-              </p>
-
-              {validChannels.map((channel) => {
-                const isSelected = Number(activeChannel?.id) === Number(channel.id)
-                const isBusy = Number(switchingId) === Number(channel.id)
-
-                return (
-                  <button
-                    key={channel.id}
-                    type="button"
-                    disabled={isBusy}
-                    onClick={() => selectChannel(channel.id)}
-                    className={`pressable w-full text-left flex items-center justify-between gap-3 p-3.5 rounded-xl border transition-all ${
-                      isSelected
-                        ? 'border-primary/60 bg-primary/[0.12] ring-1 ring-primary/40 shadow-sm'
-                        : 'border-border/60 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]'
-                    } ${isBusy ? 'opacity-50' : ''}`}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div
-                        className={`flex size-9 shrink-0 items-center justify-center rounded-lg border ${
-                          isSelected
-                            ? 'border-primary/40 bg-primary/20 text-primary'
-                            : 'border-border bg-white/5 text-muted-foreground'
-                        }`}
-                      >
-                        {isSelected ? <Check size={18} /> : <Radio size={16} />}
-                      </div>
-
-                      <div className="flex flex-col min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className={`truncate text-[13.5px] font-semibold ${isSelected ? 'text-foreground' : 'text-foreground/90'}`}>
-                            {channel.title || channel.telegram_title || channel.chat_id}
-                          </span>
-                          {isSelected && (
-                            <StatusPill tone="green">активен</StatusPill>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 text-[11px] text-muted-foreground truncate">
-                          <span className="font-mono text-primary/80">{channel.chat_id}</span>
-                          <span>·</span>
-                          <span>Тема: {channel.topic || 'наука'}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="shrink-0 flex items-center">
-                      {isSelected ? (
-                        <span className="text-[12px] font-medium text-[rgb(76,183,130)] flex items-center gap-1">
-                          Выбран
-                        </span>
-                      ) : (
-                        <span className="text-[12px] font-medium text-muted-foreground hover:text-foreground">
-                          {isBusy ? 'Переключение…' : 'Выбрать'}
-                        </span>
-                      )}
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-
-            {/* Footer */}
-            <div className="border-t border-border/80 p-4 bg-black/20 flex flex-col gap-2">
-              <Link
-                href="/more/channels"
-                onClick={() => {
+      {mounted && isOpen
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200"
+              onClick={(e) => {
+                if (e.target === e.currentTarget) {
                   haptic('light')
                   setIsOpen(false)
-                }}
-                className="btn-outline-green pressable flex items-center justify-center gap-2 py-2.5 text-[13px] w-full"
+                }
+              }}
+            >
+              <div
+                className="w-full max-w-md max-h-[85dvh] flex flex-col rounded-2xl border border-white/15 bg-[#12161f] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="channel-dialog-title"
               >
-                <Settings2 size={15} aria-hidden="true" />
-                Настроить каналы и пул тем
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
+                {/* Header */}
+                <div className="flex items-center justify-between border-b border-border/80 px-5 py-4">
+                  <div className="flex items-center gap-2">
+                    <Radio size={18} className="text-primary" aria-hidden="true" />
+                    <h3 id="channel-dialog-title" className="text-[16px] font-semibold text-foreground">
+                      Центр управления каналами
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      haptic('light')
+                      setIsOpen(false)
+                    }}
+                    className="pressable rounded-full p-1.5 text-muted-foreground hover:bg-white/10 transition-colors"
+                    aria-label="Закрыть"
+                  >
+                    <X size={17} aria-hidden="true" />
+                  </button>
+                </div>
+
+                {/* List */}
+                <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2">
+                  <p className="px-1 text-[12px] text-muted-foreground">
+                    Выберите активный канал для дашборда, генератора постов и очереди публикаций:
+                  </p>
+
+                  {validChannels.map((channel) => {
+                    const isSelected = Number(activeChannel?.id) === Number(channel.id)
+                    const isBusy = Number(switchingId) === Number(channel.id)
+
+                    return (
+                      <button
+                        key={channel.id}
+                        type="button"
+                        disabled={isBusy}
+                        onClick={() => selectChannel(channel.id)}
+                        className={`pressable w-full text-left flex items-center justify-between gap-3 p-3.5 rounded-xl border transition-all ${
+                          isSelected
+                            ? 'border-primary/60 bg-primary/[0.12] ring-1 ring-primary/40 shadow-sm'
+                            : 'border-border/60 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]'
+                        } ${isBusy ? 'opacity-50' : ''}`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div
+                            className={`flex size-9 shrink-0 items-center justify-center rounded-lg border ${
+                              isSelected
+                                ? 'border-primary/40 bg-primary/20 text-primary'
+                                : 'border-border bg-white/5 text-muted-foreground'
+                            }`}
+                          >
+                            {isSelected ? <Check size={18} /> : <Radio size={16} />}
+                          </div>
+
+                          <div className="flex flex-col min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className={`truncate text-[13.5px] font-semibold ${isSelected ? 'text-foreground' : 'text-foreground/90'}`}>
+                                {channel.title || channel.telegram_title || channel.chat_id}
+                              </span>
+                              {isSelected && (
+                                <StatusPill tone="green">активен</StatusPill>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground truncate">
+                              <span className="font-mono text-primary/80">{channel.chat_id}</span>
+                              <span>·</span>
+                              <span>Тема: {channel.topic || 'наука'}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 flex items-center">
+                          {isSelected ? (
+                            <span className="text-[12px] font-medium text-[rgb(76,183,130)] flex items-center gap-1">
+                              Выбран
+                            </span>
+                          ) : (
+                            <span className="text-[12px] font-medium text-muted-foreground hover:text-foreground">
+                              {isBusy ? 'Переключение…' : 'Выбрать'}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* Footer */}
+                <div className="border-t border-border/80 p-4 bg-black/20 flex flex-col gap-2">
+                  <Link
+                    href="/more/channels"
+                    onClick={() => {
+                      haptic('light')
+                      setIsOpen(false)
+                    }}
+                    className="btn-outline-green pressable flex items-center justify-center gap-2 py-2.5 text-[13px] w-full"
+                  >
+                    <Settings2 size={15} aria-hidden="true" />
+                    Настроить каналы и пул тем
+                  </Link>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
     </>
   )
 }
