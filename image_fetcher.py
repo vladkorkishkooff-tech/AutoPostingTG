@@ -300,8 +300,11 @@ async def _fetch_json(
     if _provider_is_paused(host):
         logger.info("Image provider %s is temporarily paused after repeated failures", host)
         return None
+    req_headers = {'User-Agent': USER_AGENT}
+    if headers:
+        req_headers.update(headers)
     try:
-        async with session.get(url, params=params, headers=headers, proxy=proxy) as response:
+        async with session.get(url, params=params, headers=req_headers, proxy=proxy) as response:
             if response.status >= 400:
                 await response.read()
                 cooldown = 300.0 if response.status in {400, 401, 403, 429} else _CIRCUIT_COOLDOWN_SECONDS
@@ -704,6 +707,13 @@ async def download_image(image: ImageResult, config: AppConfig | None = None) ->
                 image.url.replace("~orig.jpg", "~medium.jpg"),
                 image.url.replace("~orig.jpg", "~small.jpg"),
             ])
+    elif "/thumb/" in image.url and "wikimedia.org" in image.url:
+        parts = image.url.split("/thumb/")
+        if len(parts) == 2:
+            base = parts[0]
+            rest = parts[1].rsplit("/", 1)[0]
+            orig_url = f"{base}/{rest}".replace("thumb.wikimedia.org", "upload.wikimedia.org")
+            urls_to_try.append(orig_url)
 
     try:
         async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
