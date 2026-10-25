@@ -1065,10 +1065,13 @@ async def publish_prepared(post: dict, item: dict) -> PublishResult:
                         if payload:
                             image_url, image_source = image.url, image.source
             elif image_url:
-                if channel_profile and channel_profile.get("channel_kind") == "science_facts" and _is_stock_image_source(image_source):
-                    # Older queued science posts can contain broad fallback
-                    # photos. Re-run the exact visual search at publication;
-                    # if no match survives, publish the text without a photo.
+                from image_fetcher import ImageResult
+
+                payload = await download_image(
+                    ImageResult(url=image_url, source=image_source or "custom"), config
+                )
+                if not payload:
+                    logger.warning("Queued post %s image download failed (%s); searching for replacement", post["id"], image_url)
                     excluded = await db.recent_image_urls(
                         pool, item["channel_id"], topic=post["topic"], limit=config.recent_image_limit
                     )
@@ -1080,16 +1083,6 @@ async def publish_prepared(post: dict, item: dict) -> PublishResult:
                         payload = await download_image(image, config)
                         if payload:
                             image_url, image_source = image.url, image.source
-                        else:
-                            image_url, image_source = None, None
-                    else:
-                        image_url, image_source = None, None
-                else:
-                    from image_fetcher import ImageResult
-
-                    payload = await download_image(
-                        ImageResult(url=image_url, source=image_source or "custom"), config
-                    )
 
             sent = None
             photo_sent = False
